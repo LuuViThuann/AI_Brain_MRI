@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>🧠 NeuroScan AI — Brain MRI Diagnosis</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ===== HEADER ===== -->
+<header class="header">
+  <div class="header-inner">
+    <div class="logo">
+      <span class="logo-icon">⊕</span>
+      <span class="logo-text">NeuroScan<span class="logo-ai">AI</span></span>
+    </div>
+    <nav class="nav-pills">
+      <button class="pill active" data-tab="scan">Scan</button>
+      <button class="pill" data-tab="brain3d">3D Brain</button>
+      <button class="pill" data-tab="info">Info</button>
+    </nav>
+    <div class="header-status">
+      <span class="status-dot" id="statusDot"></span>
+      <span class="status-text" id="statusText">Connecting...</span>
+    </div>
+  </div>
+</header>
+
+<!-- ===== MAIN LAYOUT ===== -->
+<main class="main-layout">
+
+  <!-- ---- LEFT PANEL: Upload + Preview ---- -->
+  <section class="panel panel-left">
+    <div class="panel-header">
+      <h2>MRI Upload</h2>
+      <span class="badge">PNG / JPG</span>
+    </div>
+
+    <div class="upload-zone" id="uploadZone">
+      <div class="upload-icon">⬆</div>
+      <p class="upload-text">Drop MRI image here</p>
+      <p class="upload-sub">or click to browse</p>
+      <input type="file" id="fileInput" accept=".png,.jpg,.jpeg" />
+    </div>
+
+    <div class="preview-wrap" id="previewWrap" style="display:none;">
+      <canvas id="previewCanvas" width="256" height="256"></canvas>
+      <div class="preview-overlay" id="maskOverlay"></div>
+    </div>
+
+    <button class="btn-diagnose" id="btnDiagnose" disabled>
+      <span class="btn-icon">◉</span> Run Diagnosis
+    </button>
+  </section>
+
+  <!-- ---- CENTER: 3D Brain Viewer ---- -->
+  <section class="panel panel-center">
+    <div class="panel-header">
+      <h2>3D Brain Model</h2>
+      <div class="viewer-controls">
+        <button class="ctrl-btn" id="btnRotate" title="Auto-rotate">↻</button>
+        <button class="ctrl-btn" id="btnSlice" title="Toggle slice view">⊘</button>
+        <button class="ctrl-btn" id="btnReset" title="Reset view">↺</button>
+      </div>
+    </div>
+
+    <div class="viewer-3d" id="viewer3d">
+      <canvas id="brainCanvas"></canvas>
+      <div class="viewer-overlay">
+        <div class="axis-label x">X</div>
+        <div class="axis-label y">Y</div>
+        <div class="axis-label z">Z</div>
+      </div>
+      <div class="slice-indicator" id="sliceIndicator" style="display:none;">
+        <span>Slice View — Cross Section</span>
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="legend">
+      <div class="legend-item">
+        <span class="legend-swatch healthy"></span>
+        <span>Healthy Tissue</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-swatch tumor"></span>
+        <span>Tumor Region</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-swatch confidence"></span>
+        <span>High Confidence</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---- RIGHT PANEL: Diagnosis Report ---- -->
+  <section class="panel panel-right">
+    <div class="panel-header">
+      <h2>Diagnosis Report</h2>
+      <span class="badge groq">Groq AI</span>
+    </div>
+
+    <!-- Default state -->
+    <div class="report-placeholder" id="reportPlaceholder">
+      <div class="placeholder-icon">🔬</div>
+      <p>Upload an MRI image and run diagnosis to see the AI report here.</p>
+    </div>
+
+    <!-- Report cards (hidden until diagnosis) -->
+    <div class="report-content" id="reportContent" style="display:none;">
+
+      <!-- Confidence meter -->
+      <div class="confidence-card">
+        <div class="confidence-label">Detection Confidence</div>
+        <div class="confidence-bar-wrap">
+          <div class="confidence-bar" id="confidenceBar" style="width:0%"></div>
+        </div>
+        <div class="confidence-value" id="confidenceValue">0%</div>
+      </div>
+
+      <!-- Quick stats -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Status</div>
+          <div class="stat-value" id="statStatus">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Area</div>
+          <div class="stat-value" id="statArea">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Location</div>
+          <div class="stat-value" id="statLocation">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Severity</div>
+          <div class="stat-value" id="statSeverity">—</div>
+        </div>
+      </div>
+
+      <!-- AI Summary -->
+      <div class="report-section">
+        <div class="report-section-title">AI Summary</div>
+        <p class="report-text" id="reportSummary">—</p>
+      </div>
+
+      <!-- Findings -->
+      <div class="report-section">
+        <div class="report-section-title">Findings</div>
+        <ul class="findings-list" id="findingsList"></ul>
+      </div>
+
+      <!-- Recommendations -->
+      <div class="report-section">
+        <div class="report-section-title">Recommendations</div>
+        <ul class="findings-list" id="recommendationsList"></ul>
+      </div>
+
+      <!-- Disclaimer -->
+      <div class="disclaimer" id="disclaimer"></div>
+    </div>
+
+    <!-- Loading state -->
+    <div class="loading-state" id="loadingState" style="display:none;">
+      <div class="spinner"></div>
+      <p>Analyzing MRI...</p>
+      <p class="loading-sub">CNN segmentation → Groq AI report</p>
+    </div>
+  </section>
+
+</main>
+
+<!-- ===== INFO TAB (hidden by default) ===== -->
+<div class="info-panel" id="infoPanel" style="display:none;">
+  <div class="info-content">
+    <h2>About NeuroScan AI</h2>
+    <p>A fully software-based MRI brain tumor detection system combining U-Net CNN segmentation with Groq AI-powered medical report generation and interactive 3D brain visualization.</p>
+
+    <h3>How It Works</h3>
+    <div class="info-steps">
+      <div class="step"><span class="step-num">01</span><div><strong>Upload</strong><p>Upload a brain MRI scan (PNG/JPG)</p></div></div>
+      <div class="step"><span class="step-num">02</span><div><strong>CNN Prediction</strong><p>U-Net model segments tumor regions</p></div></div>
+      <div class="step"><span class="step-num">03</span><div><strong>Groq AI Report</strong><p>LLM generates medical findings</p></div></div>
+      <div class="step"><span class="step-num">04</span><div><strong>3D Visualization</strong><p>Tumor mapped onto interactive 3D brain</p></div></div>
+    </div>
+
+    <h3>Dataset</h3>
+    <p><strong>Source:</strong> Kaggle — LGG MRI Segmentation (mateuszbuda)<br>
+    <strong>Samples:</strong> 3,064 paired images (original + mask)<br>
+    <strong>Patients:</strong> 66<br>
+    <strong>Tumor Type:</strong> Low-Grade Glioma (LGG)</p>
+
+    <h3>Tech Stack</h3>
+    <p>Python · FastAPI · TensorFlow (U-Net) · Groq (llama3-70b) · Three.js · Vanilla JS</p>
+
+    <div class="disclaimer">⚠ This system is for research and educational purposes only. It is NOT a substitute for professional medical diagnosis. Always consult a qualified neurologist.</div>
+  </div>
+</div>
+
+<!-- ===== SCRIPTS ===== -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="brain3d.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
