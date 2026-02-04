@@ -1,6 +1,7 @@
 /* ============================================================
-   NeuroScan AI — Full Stylesheet
+   NeuroScan AI — Enhanced Stylesheet (UPDATED)
    Theme: Dark medical / sci-fi with cyan accents
+   FIXED: Legend colors match vivid tumor visualization
    ============================================================ */
 
 /* --- Reset & Vars --- */
@@ -25,6 +26,13 @@
   --font-mono:    'Consolas', 'SF Mono', monospace;
   --radius:       10px;
   --radius-sm:    6px;
+  
+  /* Tumor colors - VIVID NEON */
+  --tumor-core:   #FF0040;
+  --tumor-mid:    #FF1744;
+  --tumor-edge:   #FF6B00;
+  --tumor-glow:   #FF3D00;
+  --tumor-halo:   #FF4500;
 }
 
 html, body {
@@ -189,7 +197,6 @@ body::before {
   pointer-events: none;
   border-radius: var(--radius);
 }
-/* Mask overlay rendered as canvas on top */
 
 /* ============================================================
    DIAGNOSE BUTTON
@@ -215,7 +222,7 @@ body::before {
 .btn-icon { font-size: 14px; }
 
 /* ============================================================
-   3D VIEWER
+   3D VIEWER (ENHANCED)
    ============================================================ */
 .viewer-3d {
   flex: 1; min-height: 0;
@@ -224,15 +231,57 @@ body::before {
   overflow: hidden;
   background: radial-gradient(ellipse at center, #0d1525 0%, #050810 100%);
   border: 1px solid var(--border);
+  box-shadow: inset 0 0 30px rgba(0,0,0,0.5);
 }
-#brainCanvas { width: 100%; height: 100%; display: block; }
+#brainCanvas {
+  width: 100%; height: 100%; display: block;
+  cursor: grab;
+}
+#brainCanvas:active {
+  cursor: grabbing;
+}
 
+/* 3D Model Loading Indicator */
+.model-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-sec);
+  font-size: 13px;
+  z-index: 5;
+  background: rgba(5, 8, 16, 0.8);
+  padding: 24px 32px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+}
+
+.model-spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--cyan);
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Viewer Overlay Elements */
 .viewer-overlay {
   position: absolute; inset: 0; pointer-events: none;
 }
 .axis-label {
   position: absolute; font-size: 11px; font-weight: 700;
   color: var(--text-dim); font-family: var(--font-mono);
+  text-shadow: 0 0 4px rgba(0,0,0,0.8);
 }
 .axis-label.x { right: 12px; bottom: 50%; color: #ff5c5c; }
 .axis-label.y { top: 12px; left: 50%; color: #5cff8a; }
@@ -243,9 +292,11 @@ body::before {
   background: rgba(0,229,255,0.15); border: 1px solid var(--cyan-dim);
   color: var(--cyan); font-size: 11px; padding: 4px 12px;
   border-radius: 12px; font-weight: 600;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px rgba(0,229,255,0.2);
 }
 
-/* Viewer controls */
+/* Viewer Controls */
 .viewer-controls { display: flex; gap: 6px; }
 .ctrl-btn {
   width: 30px; height: 30px; border-radius: 6px;
@@ -253,20 +304,105 @@ body::before {
   color: var(--text-sec); font-size: 16px; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   transition: all 0.2s;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
-.ctrl-btn:hover { border-color: var(--cyan); color: var(--cyan); }
-.ctrl-btn.active { background: var(--cyan-glow); border-color: var(--cyan); color: var(--cyan); }
+.ctrl-btn:hover {
+  border-color: var(--cyan); color: var(--cyan);
+  box-shadow: 0 2px 8px rgba(0,229,255,0.2);
+}
+.ctrl-btn:active {
+  transform: scale(0.95);
+}
+.ctrl-btn.active {
+  background: var(--cyan-glow); border-color: var(--cyan);
+  color: var(--cyan); box-shadow: 0 0 12px rgba(0,229,255,0.3);
+}
 
-/* Legend */
+/* ============================================================
+   LEGEND — UPDATED FOR VIVID TUMOR COLORS
+   ============================================================ */
 .legend {
-  display: flex; gap: 16px; justify-content: center;
-  padding: 10px 0;
+  display: flex; 
+  gap: 12px; 
+  justify-content: center;
+  padding: 12px 8px;
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  margin-top: 8px;
+  flex-wrap: wrap;
 }
-.legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-sec); }
-.legend-swatch { width: 12px; height: 12px; border-radius: 3px; }
-.legend-swatch.healthy   { background: #1a6b8a; }
-.legend-swatch.tumor     { background: var(--red); box-shadow: 0 0 6px rgba(255,82,82,0.4); }
-.legend-swatch.confidence { background: var(--orange); }
+
+.legend-item {
+  display: flex; 
+  align-items: center; 
+  gap: 6px;
+  font-size: 11px; 
+  color: var(--text-sec);
+  white-space: nowrap;
+}
+
+.legend-swatch {
+  width: 14px; 
+  height: 14px; 
+  border-radius: 3px;
+  box-shadow: 0 0 4px rgba(0,0,0,0.3);
+  flex-shrink: 0;
+}
+
+/* Healthy Tissue - Realistic brain pink/beige */
+.legend-swatch.healthy {
+  background: #E8B4A8;
+  box-shadow: 0 0 4px rgba(232,180,168,0.4);
+}
+
+/* Tumor Core - Vivid neon red */
+.legend-swatch.tumor {
+  background: var(--tumor-core);
+  box-shadow: 0 0 12px rgba(255,0,64,0.9), inset 0 0 4px rgba(255,100,100,0.5);
+  animation: tumor-pulse 2s ease-in-out infinite;
+}
+
+/* Tumor Glow - Orange halo */
+.legend-swatch.glow {
+  background: var(--tumor-glow);
+  box-shadow: 0 0 10px rgba(255,61,0,0.7), inset 0 0 2px rgba(255,150,100,0.3);
+  animation: glow-pulse 2.5s ease-in-out infinite;
+}
+
+/* Tumor Spike/Edge markers */
+.legend-swatch.spike {
+  background: var(--tumor-edge);
+  box-shadow: 0 0 8px rgba(255,107,0,0.6);
+}
+
+/* Confidence indicator */
+.legend-swatch.confidence {
+  background: var(--orange);
+  box-shadow: 0 0 6px rgba(255,145,0,0.4);
+}
+
+@keyframes tumor-pulse {
+  0%, 100% { 
+    opacity: 1;
+    box-shadow: 0 0 12px rgba(255,0,64,0.9), inset 0 0 4px rgba(255,100,100,0.5);
+  }
+  50% { 
+    opacity: 0.7;
+    box-shadow: 0 0 18px rgba(255,0,64,1), inset 0 0 6px rgba(255,100,100,0.7);
+  }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { 
+    opacity: 0.8;
+    box-shadow: 0 0 10px rgba(255,61,0,0.7), inset 0 0 2px rgba(255,150,100,0.3);
+  }
+  50% { 
+    opacity: 1;
+    box-shadow: 0 0 16px rgba(255,61,0,0.9), inset 0 0 4px rgba(255,150,100,0.5);
+  }
+}
 
 /* ============================================================
    REPORT PANEL
@@ -293,7 +429,6 @@ body::before {
   animation: spin 0.8s linear infinite;
   margin-bottom: 16px;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
 .loading-sub { font-size: 11px; color: var(--text-dim); margin-top: 6px; font-family: var(--font-mono); }
 
 /* Confidence card */
@@ -326,10 +461,10 @@ body::before {
 }
 .stat-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
 .stat-value { font-size: 14px; font-weight: 600; color: var(--text-primary); }
-.stat-value.detected  { color: var(--red); }
+.stat-value.detected  { color: var(--tumor-core); }
 .stat-value.clear     { color: var(--green); }
-.stat-value.severity-high { color: var(--red); }
-.stat-value.severity-mod  { color: var(--orange); }
+.stat-value.severity-high { color: var(--tumor-core); }
+.stat-value.severity-moderate  { color: var(--tumor-edge); }
 .stat-value.severity-low  { color: var(--green); }
 
 /* Report sections */
@@ -412,3 +547,32 @@ body::before {
   to   { opacity: 1; transform: translateY(0); }
 }
 .report-content { animation: fadeIn 0.4s ease; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* ============================================================
+   RESPONSIVE (Optional - for smaller screens)
+   ============================================================ */
+@media (max-width: 1200px) {
+  .main-layout {
+    grid-template-columns: 280px 1fr 340px;
+  }
+}
+
+@media (max-width: 900px) {
+  .main-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+  
+  .panel-left, .panel-right {
+    max-height: 300px;
+  }
+  
+  .panel-center {
+    min-height: 400px;
+  }
+}

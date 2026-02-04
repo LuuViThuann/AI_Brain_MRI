@@ -70,26 +70,42 @@
       <div class="viewer-overlay">
         <div class="axis-label x">X</div>
         <div class="axis-label y">Y</div>
-        <div class="axis-label z">Z</div>
+        <div class="axis-label z"></div>
       </div>
       <div class="slice-indicator" id="sliceIndicator" style="display:none;">
-        <span>Slice View — Cross Section</span>
+        <span>Slice View</span>
+      </div>
+      <!-- Loading indicator for 3D model -->
+      <div class="model-loading" id="modelLoading" style="display:flex;">
+        <div class="model-spinner"></div>
+        <span>Loading 3D Brain Model...</span>
       </div>
     </div>
 
     <!-- Legend -->
     <div class="legend">
+      <!-- Healthy Brain Tissue -->
       <div class="legend-item">
         <span class="legend-swatch healthy"></span>
         <span>Healthy Tissue</span>
       </div>
+      
+      <!-- Tumor Core - Vivid Neon Red -->
       <div class="legend-item">
         <span class="legend-swatch tumor"></span>
-        <span>Tumor Region</span>
+        <span>Tumor Core</span>
       </div>
+      
+      <!-- Tumor Glow - Orange Halo -->
       <div class="legend-item">
-        <span class="legend-swatch confidence"></span>
-        <span>High Confidence</span>
+        <span class="legend-swatch glow"></span>
+        <span>Tumor Glow</span>
+      </div>
+      
+      <!-- Spike Markers - Orange-Red -->
+      <div class="legend-item">
+        <span class="legend-swatch spike"></span>
+        <span>Boundary Markers</span>
       </div>
     </div>
   </section>
@@ -192,16 +208,127 @@
     <strong>Tumor Type:</strong> Low-Grade Glioma (LGG)</p>
 
     <h3>Tech Stack</h3>
-    <p>Python · FastAPI · TensorFlow (U-Net) · Groq (llama3-70b) · Three.js · Vanilla JS</p>
+    <p>Python · FastAPI · TensorFlow (U-Net) · Groq (llama3-70b) · Three.js · GLTF Models · Vanilla JS</p>
+
+    <h3>3D Brain Model</h3>
+    <p><strong>Format:</strong> GLB/GLTF with automatic fallback<br>
+    <strong>Rendering:</strong> PBR materials with real-time lighting<br>
+    <strong>Features:</strong> Tumor highlighting, slice view, interactive rotation</p>
 
     <div class="disclaimer">⚠ This system is for research and educational purposes only. It is NOT a substitute for professional medical diagnosis. Always consult a qualified neurologist.</div>
   </div>
 </div>
 
 <!-- ===== SCRIPTS ===== -->
+<!-- Three.js Core -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="brain3d.js"></script>
+
+<!-- GLTFLoader for realistic brain models -->
+<script>
+// GLTFLoader implementation for Three.js r128
+THREE.GLTFLoader = ( function () {
+  function GLTFLoader( manager ) {
+    this.manager = ( manager !== undefined ) ? manager : THREE.DefaultLoadingManager;
+  }
+  
+  GLTFLoader.prototype = {
+    constructor: GLTFLoader,
+    
+    load: function ( url, onLoad, onProgress, onError ) {
+      const scope = this;
+      const loader = new THREE.FileLoader( scope.manager );
+      loader.setResponseType( 'arraybuffer' );
+      
+      loader.load( url, function ( data ) {
+        try {
+          scope.parse( data, url.substring( 0, url.lastIndexOf( '/' ) + 1 ), onLoad, onError );
+        } catch ( e ) {
+          if ( onError ) {
+            onError( e );
+          } else {
+            console.error( e );
+          }
+        }
+      }, onProgress, onError );
+    },
+    
+    parse: function ( data, path, onLoad, onError ) {
+      // Simple GLB parser for basic models
+      const magic = new Uint32Array( data, 0, 1 )[ 0 ];
+      
+      if ( magic === 0x46546C67 ) { // "glTF" in ASCII
+        this.parseGLB( data, path, onLoad, onError );
+      } else {
+        onError( new Error( 'Invalid GLB file' ) );
+      }
+    },
+    
+    parseGLB: function ( data, path, onLoad, onError ) {
+      const header = new Uint32Array( data, 0, 3 );
+      const version = header[ 1 ];
+      
+      if ( version !== 2 ) {
+        onError( new Error( 'Unsupported GLB version: ' + version ) );
+        return;
+      }
+      
+      // Extract JSON chunk
+      const chunkView = new DataView( data, 12 );
+      const jsonChunkLength = chunkView.getUint32( 0, true );
+      const jsonChunkType = chunkView.getUint32( 4, true );
+      
+      if ( jsonChunkType !== 0x4E4F534A ) { // "JSON"
+        onError( new Error( 'Invalid JSON chunk' ) );
+        return;
+      }
+      
+      const jsonData = new Uint8Array( data, 20, jsonChunkLength );
+      const jsonString = new TextDecoder().decode( jsonData );
+      const gltf = JSON.parse( jsonString );
+      
+      // Create basic scene
+      const scene = new THREE.Group();
+      
+      // Simple mesh creation from GLTF data
+      // This is a simplified parser - for production use the official GLTFLoader
+      if ( gltf.meshes && gltf.meshes.length > 0 ) {
+        const mesh = this.createMeshFromGLTF( gltf, data );
+        if ( mesh ) scene.add( mesh );
+      }
+      
+      onLoad( { scene: scene } );
+    },
+    
+    createMeshFromGLTF: function ( gltf, data ) {
+      // Simplified mesh creation - fallback if needed
+      const geometry = new THREE.BufferGeometry();
+      const material = new THREE.MeshPhongMaterial({ color: 0x1a6b8a });
+      return new THREE.Mesh( geometry, material );
+    }
+  };
+  
+  return GLTFLoader;
+} )();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="brain3d_new.js"></script>
+
+<!-- Main Application Logic -->
 <script src="app.js"></script>
+
+<!-- Hide 3D model loading indicator after initialization -->
+<script>
+window.addEventListener('DOMContentLoaded', () => {
+  // Hide loading indicator after 3 seconds (model should be loaded by then)
+  setTimeout(() => {
+    const loadingEl = document.getElementById('modelLoading');
+    if (loadingEl) {
+      loadingEl.style.display = 'none';
+    }
+  }, 3000);
+});
+</script>
 
 </body>
 </html>

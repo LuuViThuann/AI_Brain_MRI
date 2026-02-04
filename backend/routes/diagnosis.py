@@ -89,7 +89,7 @@ def map_location_to_3d_key(location_hint: str) -> str:
     # Standard mapping
     return f"{hemisphere}_{lobe}"
 
-# ===== MAIN ENDPOINT =====
+# ===== MAIN ENDPOINT ===== 
 
 @router.post("/diagnose")
 async def diagnose(file: UploadFile = File(...)):
