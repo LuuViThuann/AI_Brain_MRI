@@ -1,0 +1,11 @@
+* THÔNG TIN KẾT QUẢ SO SÁNH ==============
+
+2 metric khác nhau:
+
+Dữ liệu 76% là prediction.confidence từ backend (prediction_engine.py)
+Dữ liệu 82% là gradcam.attention_score từ XAI (một metric khác hoàn toàn!)
+
+confidence: Mức độ tự tin của CNN về việc có tumor
+attention_score: Mức độ tập trung (focus) của CNN vào vùng tumor
+
+-------------

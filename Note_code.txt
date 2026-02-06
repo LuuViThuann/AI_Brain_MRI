@@ -1,0 +1,445 @@
+* Hiển thị thông tin tương tự chạy thêm : 
+
+python dataset_scripts/build_faiss_index.py
+
+* Chạy web
+
+python backend/app.py
+
+python app.py 
+
+
+
+-------------
+CHÚ Ý THÔNG TIN CÁC FILE NHƯ : 
+
+File .mat có PatientID vì là raw medical data,
+file .parquet không có vì chỉ là embedding/feature – bạn không sai, pipeline thiếu metadata.
+.mat thì có đường dẫn ảnh / volume gốc
+.parquet thì chỉ có vector
+
+--------------
+THÔNG TIN FAISS : 
+---------------
+[FAISS] 🔧 Strategy 2: Short path failed, using temp copy...
+[FAISS] Source: D:\Dự án - python\Brain_MRI\data\faiss\brain_tumor_index.faiss
+[FAISS] Dest:   C:\Users\ADMIN\AppData\Local\Temp\faiss_cache\brain_tumor_index.faiss
+[FAISS] ✅ Temp path is ASCII-safe
+[FAISS] 📋 Copying 2948.0MB...
+[FAISS] ✅ Copy complete
+-------------- 
+* THÔNG TIN TẬP DỮ LIỆU :  < 
+
+- https://www.kaggle.com/datasets/masoudnickparvar/brain-tumor-mri-dataset
+
+- https://data.mendeley.com/datasets/zwr4ntf94j/4
+
+- https://huggingface.co/datasets/AIOmarRehan/Brain_Tumor_MRI_Dataset?utm_source=chatgpt.com
+
+- https://huggingface.co/datasets/vanhai123/Brain_tumor_detections?utm_source=chatgpt.com
+
+- https://figshare.com/articles/dataset/brain_tumor_dataset/1512427
+
+
+- Có voxel chưa tải : https://www.kaggle.com/datasets/awsaf49/brats2020-training-data
+------------------
+- CÁC CÁCH SO SÁCH MÔ HÌNH : < 
+
++ Rule-based + thống kê (ngưỡng diện tích u, vị trí, thể tích)
+
++ Grad-CAM / Attention Map (giải thích CNN trực tiếp trên ảnh MRI)
+
++ Decision Tree / Random Forest trên đặc trưng trích xuất
+
++ SHAP / LIME để giải thích đầu ra mô hình
+
++ Prototype-based models (so sánh ca bệnh tương tự)
+
+-------------------
+
+THÔNG TIN BỔ SUNG :  < 
+
+Những tích hợp ưu tiên trên mô hình não 3D 
+
+-----------
+
+
+*  ƯU TIÊN 1 – BẮT BUỘC nếu muốn “chuẩn nghiên cứu”
+
+Thông tin định lượng khối u (Numerical Tumor Metrics)
+
+Hiện tại: chỉ thấy u ở đâu
+Cần thêm:
+
++ Thể tích khối u (cm³)
+
++  Tỷ lệ u / thể tích não
+
++  Tọa độ tâm u (x, y, z)
+
++  Khoảng cách tới vỏ não / thân não
+
+ Gợi ý hiển thị:
+
+Panel bên phải
+
+Tooltip khi hover vào khối u
+
+ Đây là điểm bắt buộc để gọi là “support diagnosis”
+
+*  ƯU TIÊN 2 – Explainable AI đúng nghĩa (xAI) 
+
+Hiện bạn có heatmap đẹp, nhưng còn thiếu ý nghĩa y học.
+
+ Chuẩn hóa heatmap AI
+
+Nên thêm:
+
+Colorbar (Low → High confidence)
+
+Ngưỡng AI:
+
+vùng > 0.7 → nghi ngờ cao
+
+vùng < 0.3 → không chắc
+
+ Khi trình bày:
+
+“AI tập trung 82% vào vùng vỏ trán trái”
+
+ Lúc này AI không chỉ ‘tô màu’ mà đang ‘lý giải’
+
+* ƯU TIÊN 3 – Giải phẫu & chức năng não
+ Overlay vùng chức năng (Functional Regions)
+
+Ví dụ:
+
+Vận động
+
+Ngôn ngữ
+
+Thị giác
+
+Cảnh báo:
+
+ “Khối u nằm gần vùng vận động – nguy cơ ảnh hưởng chức năng”
+
+ Dù chỉ demo 1–2 vùng → điểm cộng cực lớn
+
+*  ƯU TIÊN 4 – So sánh ca bệnh (Prototype-based)
+So ca tương tự (rất hợp với mô hình của bạn)
+
+Bạn hoàn toàn có thể thêm:
+
+“Top 3 ca MRI tương tự”
+
+Hiển thị:
+
+ảnh MRI 2D
+
+mô hình 3D tương ứng
+
+ similarity
+
+ Bác sĩ rất thích kiểu:
+
+“Ca này giống ca nào đã biết?”
+
+----------------------------------------------------------------------------------
+
+1. Rule-based + Thống kê =========
+
+ Mục tiêu: Giải thích được 100%, làm baseline để so sánh với AI.
+
+Bước 1: Input
+
+Ảnh MRI
+
+Mask khối u từ U-Net
+
+Bước 2: Trích xuất đặc trưng hình học
+
+Từ mask:
+
+Diện tích u (pixel → mm²)
+
+Thể tích u (nếu 3D / nhiều slice)
+
+Tỷ lệ u / não
+
+Tâm khối u (left / right / frontal / temporal)
+
+Số lượng vùng u (connected components)
+
+Bước 3: Xây dựng luật (rule-based)
+
+Ví dụ:
+
+Nếu diện tích < X → u nhỏ
+
+Nếu thể tích > Y → nguy cơ cao
+
+Nếu nằm gần vùng chức năng → cảnh báo
+
+Bước 4: Xuất kết luận
+
+Không “dự đoán”
+
+Chỉ mô tả + cảnh báo theo luật
+
+ Vai trò trong đồ án:
+
+Baseline dễ giải thích
+
+So sánh với AI: AI có vượt được luật thủ công không?
+
+2️.  Grad-CAM / Attention Map (xAI cho CNN)
+
+ Mục tiêu: Giải thích tại sao CNN nghĩ đó là khối u
+
+Bước 1: Huấn luyện CNN / U-Net
+
+Dùng để phân đoạn u
+
+Bước 2: Chọn layer cuối (deep layer)
+
+Conv layer gần output
+
+Bước 3: Tính Grad-CAM
+
+Gradient của output wrt feature map
+
+Tổng hợp → heatmap
+
+Bước 4: Overlay lên MRI
+
+Màu đỏ = vùng CNN chú ý
+
+So với mask ground truth
+
+Bước 5: Đánh giá
+
+CNN có tập trung đúng vùng u không?
+
+Có chú ý vùng não lành không?
+
+ Điểm mạnh:
+
+Trực quan
+
+Rất hợp y tế
+
+ Điểm yếu:
+
+Chỉ giải thích “ở đâu”, không giải thích “vì sao”
+
+3️.  Decision Tree / Random Forest (ML cổ điển + xAI)
+
+ Mục tiêu: Mô hình có thể giải thích bằng cây quyết định
+
+Bước 1: Trích xuất đặc trưng
+
+Từ mask + MRI:
+
+Diện tích
+
+Thể tích
+
+Chu vi
+
+Độ tròn
+
+Mean intensity trong vùng u
+
+Texture (GLCM)
+
+Bước 2: Tạo bảng feature (tabular)
+| area | volume | intensity | texture | label |
+Bước 3: Train model
+
+Decision Tree (dễ giải thích)
+
+Random Forest (chính xác hơn)
+
+Bước 4: Giải thích
+
+Decision Tree: nhìn trực tiếp nhánh
+
+Random Forest: feature importance
+
+ Vai trò:
+
+Cầu nối giữa rule-based và deep learning
+
+4. SHAP / LIME (Giải thích định lượng)
+
+ Mục tiêu: Giải thích đóng góp của từng đặc trưng
+
+Bước 1: Chọn model cần giải thích
+
+Random Forest
+
+CNN (qua feature extractor)
+
+Thậm chí là LLM output
+
+Bước 2: Chạy SHAP / LIME
+
+SHAP: global + local explanation
+
+LIME: giải thích từng sample
+
+Bước 3: Phân tích kết quả
+
+Ví dụ:
+
+Thể tích u đóng góp +45%
+
+Vị trí gần trung tâm não +30%
+
+Cường độ tín hiệu +15%
+
+Bước 4: Visualization
+
+Bar chart
+
+Force plot
+
+Waterfall plot
+
+Điểm mạnh:
+
+Rất học thuật
+
+So sánh định lượng giữa các model
+
+-----------
+=========================================================================================================================================== NEW UPDATE 
+
+Những thông tin THIẾU SÓT QUAN TRỌNG
+-----------
+
+1. “81% độ tin cậy” → chưa rõ là gì
+
+GV sẽ hỏi:
+
+- 81% là:
+
+Softmax probability?
+
+Model confidence calibration?
+
+Trung bình ensemble?
+
+Hay chỉ là giá trị minh họa?
+
+ Bắt buộc làm rõ trong hệ thống hoặc thuyết minh:
+
+ Ví dụ : Độ tin cậy CNN = xác suất softmax của lớp dự đoán sau calibration
+
+------------
+2. Grad-CAM nhưng KHÔNG nói:
+
+Áp dụng cho layer nào
+
+2D slice hay 3D aggregation?
+
+GV hỏi là rất mệt đó.
+
+- Cần ghi rõ:
+
+“Grad-CAM được tính trên layer conv cuối của CNN, hiển thị trên lát cắt axial có xác suất cao nhất”
+
+-----------
+3. Thiếu thông tin chuỗi MRI
+
+Hiện tại ảnh không nói rõ:
+
+T1?
+
+T1ce?
+
+T2?
+
+FLAIR?
+
+Với y sinh, đây là lỗi lớn
+
+ Cần bổ sung label:
+
+ Chuỗi MRI: FLAIR
+Slice: axial – z = 78
+
+----------
+4. Phân tích thống kê nhưng chưa có NGƯỠNG Y KHOA
+
+Ví dụ:
+
+“Trung bình”
+
+“Vừa phải”
+
+ GV sẽ hỏi:
+
+“Theo tiêu chuẩn nào?”
+
+ Nên thêm:
+
+WHO grade reference (gián tiếp)
+
+Ngưỡng dựa trên dataset (BraTS statistics)
+
+----------
+5. Feature importance 100% → nguy hiểm 
+
+“vùng khối u = 100%” nghe không khoa học
+
+GV sẽ phản xạ ngay:
+
+“Không có feature nào tuyệt đối 100%”
+
+ Gợi ý sửa:
+
+Chuẩn hóa theo relative importance
+
+Ví dụ:Tumor area (normalized importance: 0.42)
+
+--------
+THÔNG TIN ĐIỀU CHỈNH BỔ SUNG : 
+
+1. Thêm tab / block: “So sánh phương pháp”
+
+| Phương pháp     | Kết quả       |
+| --------------- | ------------- |
+| CNN thuần       | Glioma – 0.81 |
+| CNN + xAI       | Glioma – 0.81 |
+| Radiomics + SVM | Glioma – 0.72 |
+| Rule-based      | Trung bình    |
+
+Chứng minh LLM không phải cách duy nhất
+
+2. Thêm “Mức độ bất định (Uncertainty)”
+
+Rất xịn nếu có:
+
+Entropy
+
+Confidence interval
+
+Warning nếu confidence thấp
+
+3. Tách rõ vai trò LLM (rất quan trọng)
+
+Trong UI hoặc báo cáo ghi rõ:
+
+“LLM chỉ tổng hợp và diễn giải kết quả từ CNN, xAI và rule-based, không tham gia trực tiếp vào quá trình chẩn đoán.”
+
+ Câu này nên in đậm trong thuyết minh
+
+ 4. Thêm “Clinical disclaimer”
+
+GV y sinh rất thích:
+
+“Hệ thống hỗ trợ quyết định, không thay thế bác sĩ”
+
+

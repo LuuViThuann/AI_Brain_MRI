@@ -1,14 +1,12 @@
 """
-routes/diagnosis.py (COMPLETE INTEGRATED VERSION)
-POST /api/diagnose — Upload MRI image, get CNN prediction + Groq AI report.
+routes/diagnosis.py (COMPLETE INTEGRATED VERSION WITH XAI)
+POST /api/diagnose — Upload MRI image, get CNN prediction + Groq AI report + XAI analysis.
 
-FEATURES:
-✅ Integrated with prediction_engine.py
-✅ Integrated with groq_client.py
-✅ Proper error handling
-✅ File validation
-✅ Detailed logging
-✅ Returns full diagnosis with 3D visualization data
+FIXES APPLIED:
+✅ XAI data properly integrated into diagnosis response
+✅ Consistent response structure
+✅ Non-blocking error handling for optional components
+✅ Clear data structure documentation
 """
 
 import sys, os
@@ -20,21 +18,24 @@ from PIL import Image
 import io
 import traceback
 import time
+import numpy as np
+import base64
 
 # Import prediction engine and Groq client
-from prediction_engine import predict_tumor
+from prediction_engine import predict_tumor, load_model, preprocess_image
 from groq_client import generate_diagnosis_report
+
+# Import XAI modules
+from xai.gradcam import GradCAMExplainer
+from xai.rule_based import RuleBasedAnalyzer
+from xai.shap_explain import SHAPExplainer, extract_features_for_shap
 
 router = APIRouter()
 
 # ===== HELPER FUNCTIONS =====
 
 def validate_image_file(file: UploadFile) -> None:
-    """
-    Validate uploaded file is a valid image.
-    Raises HTTPException if invalid.
-    """
-    # Check content type
+    """Validate uploaded file is a valid image."""
     allowed_types = ["image/png", "image/jpeg", "image/jpg", "image/bmp"]
     if file.content_type not in allowed_types:
         raise HTTPException(
@@ -43,7 +44,6 @@ def validate_image_file(file: UploadFile) -> None:
                    f"Allowed types: PNG, JPG, JPEG, BMP"
         )
     
-    # Check file size (max 10MB)
     if hasattr(file, 'size') and file.size > 10 * 1024 * 1024:
         raise HTTPException(
             status_code=400,
@@ -51,24 +51,16 @@ def validate_image_file(file: UploadFile) -> None:
         )
 
 def map_location_to_3d_key(location_hint: str) -> str:
-    """
-    Map CNN location hint to 3D brain location key.
-    
-    Examples:
-        "Superior left frontal lobe" → "left_frontal"
-        "Inferior right parietal lobe" → "right_parietal"
-    """
+    """Map CNN location hint to 3D brain location key."""
     location_lower = location_hint.lower()
     
-    # Determine hemisphere
     if "left" in location_lower:
         hemisphere = "left"
     elif "right" in location_lower:
         hemisphere = "right"
     else:
-        hemisphere = "left"  # Default
+        hemisphere = "left"
     
-    # Determine lobe
     if "frontal" in location_lower:
         lobe = "frontal"
     elif "temporal" in location_lower:
@@ -78,56 +70,111 @@ def map_location_to_3d_key(location_hint: str) -> str:
     elif "occipital" in location_lower:
         lobe = "occipital"
     else:
-        lobe = "frontal"  # Default
+        lobe = "frontal"
     
-    # Determine vertical position for special cases
     if "superior" in location_lower and hemisphere == "left":
         return "superior_left"
     elif "inferior" in location_lower and hemisphere == "right":
         return "inferior_right"
     
-    # Standard mapping
     return f"{hemisphere}_{lobe}"
 
-# ===== MAIN ENDPOINT ===== 
+def image_to_base64(img: Image.Image) -> str:
+    """Convert PIL Image to base64 string."""
+    buffer = io.BytesIO()
+    img.save(buffer, format='PNG')
+    buffer.seek(0)
+    img_base64 = base64.b64encode(buffer.read()).decode()
+    return f"data:image/png;base64,{img_base64}"
+
+def generate_combined_insights(gradcam, rules, shap) -> list:
+    """Generate combined insights from all XAI methods."""
+    insights = []
+    
+    # Grad-CAM insights
+    if gradcam and gradcam.get('attention_score', 0) > 0.7:
+        insights.append("🔍 CNN shows high confidence in identified tumor region")
+    elif gradcam and gradcam.get('attention_score', 0) < 0.3:
+        insights.append("⚠ CNN attention is diffuse - prediction may be uncertain")
+    
+    # Rule-based insights
+    if rules:
+        risk = rules.get('risk_level', 'Unknown')
+        if risk == 'High':
+            insights.append(f"⚠ High risk classification: {rules.get('tumor_area_mm2', 'unknown')}mm² tumor detected")
+        elif risk == 'Low':
+            insights.append(f"✓ Low risk classification: Small tumor ({rules.get('tumor_area_mm2', 'unknown')}mm²)")
+        
+        # Location insights
+        location = rules.get('location', '').lower()
+        if 'frontal' in location:
+            insights.append("📍 Frontal lobe location may affect motor functions")
+        elif 'temporal' in location:
+            insights.append("📍 Temporal lobe location may affect memory/language")
+        
+        # Warnings
+        warnings = rules.get('warnings', [])
+        if warnings:
+            insights.extend(warnings[:2])
+    
+    # SHAP insights
+    if shap:
+        top_feature = shap.get('top_features', [None])[0] if shap.get('top_features') else None
+        if top_feature:
+            importance = shap.get('feature_importance', {}).get(top_feature, 0)
+            insights.append(f"📊 Most important feature: {top_feature} (importance: {importance:.3f})")
+    
+    return insights
+
+# ===== MAIN ENDPOINT =====
 
 @router.post("/diagnose")
 async def diagnose(file: UploadFile = File(...)):
     """
-    Upload an MRI image → CNN segmentation → Groq AI report.
+    Upload an MRI image → CNN segmentation → Groq AI report → XAI analysis.
     
-    Request:
-        - file: MRI image file (PNG/JPG/JPEG/BMP)
-    
-    Response:
-        {
-            "status": "success",
-            "prediction": {
-                "tumor_detected": bool,
-                "confidence": float,
-                "tumor_area_percent": float,
-                "location_hint": str,
-                "location_3d_key": str,  # For 3D visualization
-                "mask_shape": [256, 256]
+    Response Structure:
+    {
+        "status": "success",
+        "prediction": {
+            "tumor_detected": bool,
+            "confidence": float,
+            "tumor_area_percent": float,
+            "location_hint": str,
+            "location_3d_key": str,
+            "mask_shape": [int, int]
+        },
+        "report": {
+            "summary": str,
+            "findings": [str],
+            "recommendations": [str],
+            "severity": str,
+            "disclaimer": str
+        },
+        "mask": [[float]],  // 256x256 binary mask
+        "xai": {
+            "gradcam": {
+                "attention_score": float,
+                "overlay_base64": str,
+                "heatmap_base64": str,
+                "focused_regions": [...]
             },
-            "report": {
-                "summary": str,
-                "findings": str,
-                "recommendation": str,
-                "severity": str
+            "rule_based": {
+                "tumor_area_mm2": float,
+                "risk_level": str,
+                "rules_triggered": [str],
+                "warnings": [str]
             },
-            "mask": [[...], ...],  # 256x256 binary segmentation mask
-            "visualization": {
-                "brain3d_url": str,
-                "tumor_location": str,
-                "tumor_size": float
+            "shap": {
+                "top_features": [str],
+                "feature_importance": {str: float},
+                "shap_values": {str: float}
             },
-            "metadata": {
-                "filename": str,
-                "processing_time": float,
-                "model_version": str
-            }
-        }
+            "combined_insights": [str]
+        },
+        "visualization": {...},
+        "metadata": {...}
+    }
     """
     start_time = time.time()
     
@@ -173,23 +220,99 @@ async def diagnose(file: UploadFile = File(...)):
             )
             print(f"   ✅ Report generated successfully")
         except Exception as e:
-            # If Groq fails, provide fallback report
             print(f"   ⚠️  Groq API warning: {str(e)}")
             report = {
                 "summary": "Automated analysis completed",
                 "findings": f"{'Tumor detected' if prediction['tumor_detected'] else 'No tumor detected'} "
                            f"with {prediction['confidence']:.1%} confidence.",
-                "recommendation": "Please consult with a radiologist for professional interpretation.",
-                "severity": "medium" if prediction["tumor_detected"] else "low"
+                "recommendations": [
+                    "Consult with a radiologist for professional interpretation",
+                    "Consider additional imaging if needed"
+                ],
+                "severity": "medium" if prediction["tumor_detected"] else "low",
+                "disclaimer": "⚠️ This is an AI-generated report. Not a substitute for professional medical advice."
             }
         
-        # ===== STEP 5: MAP LOCATION FOR 3D VISUALIZATION =====
-        location_3d_key = map_location_to_3d_key(prediction["location_hint"])
+        # ===== STEP 5: XAI ANALYSIS (NON-BLOCKING) =====
+        xai_result = {
+            "error": None,
+            "gradcam": None,
+            "rule_based": None,
+            "shap": None,
+            "combined_insights": []
+        }
         
-        # Calculate tumor size for 3D visualization (0.0 - 1.0 scale)
+        try:
+            print(f"   🔍 Running XAI analysis...")
+            
+            model = load_model()
+            img_array = preprocess_image(img)
+            mask = np.array(prediction["mask"])
+            mri_array = np.array(img.convert('L').resize((256, 256)))
+            
+            # 1. Grad-CAM
+            try:
+                print(f"      • Grad-CAM...")
+                gradcam_explainer = GradCAMExplainer(model)
+                gradcam_result = gradcam_explainer.generate_gradcam(img_array)
+                
+                # Convert to base64
+                gradcam_result['overlay_base64'] = image_to_base64(gradcam_result['overlay'])
+                del gradcam_result['overlay']
+                
+                heatmap_img = Image.fromarray((gradcam_result['heatmap'] * 255).astype(np.uint8))
+                gradcam_result['heatmap_base64'] = image_to_base64(heatmap_img)
+                del gradcam_result['heatmap']
+                
+                xai_result['gradcam'] = gradcam_result
+                print(f"      ✅ Grad-CAM complete")
+            except Exception as e:
+                print(f"      ⚠️  Grad-CAM failed: {str(e)}")
+            
+            # 2. Rule-based analysis
+            try:
+                print(f"      • Rule-based...")
+                rule_analyzer = RuleBasedAnalyzer()
+                rule_result = rule_analyzer.analyze(mask, mri_array)
+                xai_result['rule_based'] = rule_result
+                
+                if 'severity' not in report or not report['severity']:
+                    report['severity'] = rule_result.get('risk_level', 'medium').lower()
+                
+                print(f"      ✅ Rule-based complete")
+            except Exception as e:
+                print(f"      ⚠️  Rule-based failed: {str(e)}")
+            
+            # 3. SHAP explanation
+            try:
+                print(f"      • SHAP...")
+                features = extract_features_for_shap(mask, mri_array)
+                shap_explainer = SHAPExplainer()
+                shap_result = shap_explainer.explain_prediction(features)
+                xai_result['shap'] = shap_result
+                print(f"      ✅ SHAP complete")
+            except Exception as e:
+                print(f"      ⚠️  SHAP failed: {str(e)}")
+            
+            # 4. Combined insights
+            combined_insights = generate_combined_insights(
+                xai_result['gradcam'],
+                xai_result['rule_based'],
+                xai_result['shap']
+            )
+            xai_result['combined_insights'] = combined_insights
+            
+            print(f"   ✅ XAI analysis complete")
+            
+        except Exception as e:
+            print(f"   ⚠️  XAI analysis failed: {str(e)}")
+            xai_result['error'] = str(e)
+        
+        # ===== STEP 6: MAP LOCATION FOR 3D VISUALIZATION =====
+        location_3d_key = map_location_to_3d_key(prediction["location_hint"])
         tumor_size_3d = min(prediction["tumor_area_percent"] / 100.0 * 3, 1.0)
         
-        # ===== STEP 6: BUILD COMPLETE RESPONSE =====
+        # ===== STEP 7: BUILD COMPLETE RESPONSE =====
         processing_time = time.time() - start_time
         
         response = {
@@ -199,11 +322,12 @@ async def diagnose(file: UploadFile = File(...)):
                 "confidence": prediction["confidence"],
                 "tumor_area_percent": prediction["tumor_area_percent"],
                 "location_hint": prediction["location_hint"],
-                "location_3d_key": location_3d_key,  # For 3D brain visualization
+                "location_3d_key": location_3d_key,
                 "mask_shape": [256, 256]
             },
             "report": report,
-            "mask": prediction["mask"],  # 256×256 binary segmentation mask
+            "mask": prediction["mask"],
+            "xai": xai_result,
             "visualization": {
                 "brain3d_url": f"/api/brain3d?location={location_3d_key}&tumor_size={tumor_size_3d:.2f}",
                 "tumor_location": location_3d_key,
@@ -213,7 +337,8 @@ async def diagnose(file: UploadFile = File(...)):
                 "filename": file.filename,
                 "processing_time": round(processing_time, 3),
                 "model_version": "U-Net v1.0",
-                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "xai_enabled": xai_result.get('error') is None
             }
         }
         
@@ -223,7 +348,7 @@ async def diagnose(file: UploadFile = File(...)):
     
     # ===== ERROR HANDLING =====
     except HTTPException:
-        raise  # Re-raise HTTP exceptions as-is
+        raise
     
     except Exception as e:
         print(f"\n❌ Error in /api/diagnose:")
@@ -244,9 +369,7 @@ async def diagnose(file: UploadFile = File(...)):
 
 @router.get("/model-info")
 def get_model_info():
-    """
-    Get information about the diagnosis model.
-    """
+    """Get information about the diagnosis model."""
     return {
         "model_name": "U-Net Brain Tumor Segmentation",
         "version": "1.0.0",
@@ -260,15 +383,14 @@ def get_model_info():
             "Tumor detection",
             "Tumor segmentation",
             "Location estimation",
-            "Size quantification"
+            "Size quantification",
+            "XAI analysis (Grad-CAM, Rules, SHAP)"
         ]
     }
 
 @router.get("/supported-formats")
 def get_supported_formats():
-    """
-    Get list of supported image formats.
-    """
+    """Get list of supported image formats."""
     return {
         "supported_formats": ["PNG", "JPG", "JPEG", "BMP"],
         "max_file_size_mb": 10,

@@ -1,6 +1,6 @@
 """
 evaluate.py
-Comprehensive evaluation of the trained U-Net model on the test set.
+Comprehensive evaluation of the trained U-Net model on the test set with XAI support.
 
 Metrics computed:
   - Dice Coefficient (F1 for segmentation)
@@ -10,18 +10,30 @@ Metrics computed:
   - Per-sample breakdown
   - Confusion Matrix (TP, TN, FP, FN)
 
+XAI Features (when --xai-enabled):
+  - Grad-CAM visualizations
+  - Attention maps
+  - Feature importance heatmaps
+  - Overlay visualizations
+
 Outputs:
   - Printed summary report to console
   - evaluation_results.json — full per-sample + aggregate results
   - evaluation_report.png  — visual comparison grid (if matplotlib available)
+  - xai_visualizations/    — XAI outputs (if --xai-enabled)
 
 Usage:
+    # Basic evaluation
     python model/evaluate.py
 
-    # Or with custom paths:
-    python model/evaluate.py --model model/saved_model/brain_tumor_model.h5
-                             --test-dir data/test
-                             --output results/
+    # With XAI enabled
+    python model/evaluate.py --xai-enabled
+
+    # Custom paths
+    python model/evaluate.py --model model/saved_model/brain_tumor_model.h5 \
+                             --test-dir data/test \
+                             --output results/ \
+                             --xai-enabled
 """
 
 import sys
@@ -29,11 +41,13 @@ import os
 import json
 import argparse
 import time
+from typing import Tuple, List, Dict, Optional
 
 import numpy as np
 from PIL import Image
 
 import tensorflow as tf
+from tensorflow import keras
 
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -46,9 +60,18 @@ try:
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
+    from matplotlib.colors import LinearSegmentedColormap
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
+    print("[!] Matplotlib not available - visual reports will be skipped")
+
+# Optional OpenCV for advanced XAI
+try:
+    import cv2
+    HAS_OPENCV = True
+except ImportError:
+    HAS_OPENCV = False
 
 
 # ============================================================
@@ -64,7 +87,7 @@ THRESHOLD          = 0.5  # Prediction threshold for binary mask
 # ============================================================
 # DATA LOADING
 # ============================================================
-def load_test_data(test_dir: str) -> tuple:
+def load_test_data(test_dir: str) -> Tuple[np.ndarray, np.ndarray, List[str]]:
     """
     Load all images and masks from test directory.
 
@@ -145,7 +168,7 @@ def compute_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(correct / total)
 
 
-def compute_precision_recall_f1(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
+def compute_precision_recall_f1(y_true: np.ndarray, y_pred: np.ndarray) -> Dict:
     """
     Compute precision, recall, F1 from binary arrays.
 
@@ -170,22 +193,302 @@ def compute_precision_recall_f1(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
 
 
 # ============================================================
+# XAI - GRAD-CAM IMPLEMENTATION
+# ============================================================
+class GradCAM:
+    """
+    Grad-CAM implementation for U-Net models.
+    
+    Generates class activation maps to visualize which regions
+    the model focuses on when making predictions.
+    """
+    
+    def __init__(self, model: keras.Model, layer_name: Optional[str] = None):
+        """
+        Initialize Grad-CAM.
+        
+        Args:
+            model: Keras model
+            layer_name: Name of the convolutional layer to visualize.
+                       If None, uses the last Conv2D layer.
+        """
+        self.model = model
+        
+        # Find the target layer
+        if layer_name is None:
+            # Find last Conv2D layer
+            for layer in reversed(model.layers):
+                if isinstance(layer, keras.layers.Conv2D):
+                    self.layer_name = layer.name
+                    break
+            else:
+                raise ValueError("No Conv2D layer found in model")
+        else:
+            self.layer_name = layer_name
+        
+        print(f"[XAI] Using layer for Grad-CAM: {self.layer_name}")
+        
+        # Create gradient model
+        self.grad_model = keras.Model(
+            inputs=[model.input],
+            outputs=[model.get_layer(self.layer_name).output, model.output]
+        )
+    
+    def generate_heatmap(self, image: np.ndarray) -> np.ndarray:
+        """
+        Generate Grad-CAM heatmap for a single image.
+        
+        Args:
+            image: Input image (1, H, W, 1)
+            
+        Returns:
+            Heatmap array (H, W) normalized to [0, 1]
+        """
+        # Compute gradient
+        with tf.GradientTape() as tape:
+            conv_outputs, predictions = self.grad_model(image)
+            # Use mean of prediction as the score
+            loss = tf.reduce_mean(predictions)
+        
+        # Compute gradients
+        grads = tape.gradient(loss, conv_outputs)
+        
+        # Global average pooling on gradients
+        pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+        
+        # Weight the channels by the gradients
+        conv_outputs = conv_outputs[0]
+        pooled_grads = pooled_grads.numpy()
+        conv_outputs = conv_outputs.numpy()
+        
+        for i in range(pooled_grads.shape[-1]):
+            conv_outputs[:, :, i] *= pooled_grads[i]
+        
+        # Create heatmap
+        heatmap = np.mean(conv_outputs, axis=-1)
+        
+        # Normalize to [0, 1]
+        heatmap = np.maximum(heatmap, 0)
+        if heatmap.max() > 0:
+            heatmap /= heatmap.max()
+        
+        # Resize to match input size
+        if HAS_OPENCV:
+            heatmap = cv2.resize(heatmap, IMG_SIZE)
+        else:
+            # Use PIL if cv2 not available
+            heatmap = np.array(Image.fromarray(heatmap).resize(IMG_SIZE, Image.BILINEAR))
+        
+        return heatmap
+
+
+# ============================================================
+# XAI - ATTENTION MAP EXTRACTION
+# ============================================================
+def extract_attention_maps(
+    model: keras.Model,
+    image: np.ndarray,
+    layer_names: Optional[List[str]] = None
+) -> Dict[str, np.ndarray]:
+    """
+    Extract activation maps from specified layers.
+    
+    Args:
+        model: Keras model
+        image: Input image (1, H, W, 1)
+        layer_names: List of layer names to extract. If None, extracts from
+                    key layers in the encoder path.
+    
+    Returns:
+        Dict mapping layer names to activation arrays
+    """
+    if layer_names is None:
+        # Auto-detect encoder layers (typically named with 'conv' or 'block')
+        layer_names = []
+        for layer in model.layers:
+            if isinstance(layer, keras.layers.Conv2D):
+                if 'conv' in layer.name.lower() or 'block' in layer.name.lower():
+                    layer_names.append(layer.name)
+        
+        # Limit to first few layers to avoid too many visualizations
+        layer_names = layer_names[:5]
+    
+    if not layer_names:
+        return {}
+    
+    # Create model to extract activations
+    outputs = [model.get_layer(name).output for name in layer_names]
+    activation_model = keras.Model(inputs=model.input, outputs=outputs)
+    
+    # Get activations
+    activations = activation_model.predict(image, verbose=0)
+    
+    # Normalize each activation map
+    attention_maps = {}
+    for name, activation in zip(layer_names, activations):
+        # Take mean across channels
+        att_map = np.mean(activation[0], axis=-1)
+        
+        # Normalize
+        if att_map.max() > att_map.min():
+            att_map = (att_map - att_map.min()) / (att_map.max() - att_map.min())
+        
+        attention_maps[name] = att_map
+    
+    return attention_maps
+
+
+# ============================================================
+# XAI - VISUALIZATION
+# ============================================================
+def visualize_xai(
+    image: np.ndarray,
+    mask: np.ndarray,
+    prediction: np.ndarray,
+    pred_binary: np.ndarray,
+    gradcam_heatmap: np.ndarray,
+    attention_maps: Dict[str, np.ndarray],
+    filename: str,
+    output_path: str,
+    dice_score: float
+):
+    """
+    Create comprehensive XAI visualization.
+    
+    Args:
+        image: Original image (H, W)
+        mask: Ground truth mask (H, W)
+        prediction: Raw prediction (H, W)
+        pred_binary: Binary prediction (H, W)
+        gradcam_heatmap: Grad-CAM heatmap (H, W)
+        attention_maps: Dict of attention maps
+        filename: Original filename
+        output_path: Path to save visualization
+        dice_score: Dice score for this sample
+    """
+    if not HAS_MATPLOTLIB:
+        return
+    
+    # Setup figure
+    n_attention = min(3, len(attention_maps))  # Show max 3 attention maps
+    n_rows = 2
+    n_cols = 4 + n_attention
+    
+    fig = plt.figure(figsize=(n_cols * 3, n_rows * 3))
+    fig.patch.set_facecolor('#0a0e1a')
+    
+    # Title
+    fig.suptitle(
+        f"XAI Analysis: {filename} (Dice: {dice_score:.4f})",
+        color='#00e5ff', fontsize=14, fontweight='bold', y=0.98
+    )
+    
+    # Row 1: Main visualizations
+    # Original
+    ax1 = plt.subplot(n_rows, n_cols, 1)
+    ax1.imshow(image, cmap='gray')
+    ax1.set_title('Original MRI', color='#8899b0', fontsize=10)
+    ax1.axis('off')
+    ax1.set_facecolor('#0a0e1a')
+    
+    # Ground truth
+    ax2 = plt.subplot(n_rows, n_cols, 2)
+    ax2.imshow(mask, cmap='Reds', alpha=0.8)
+    ax2.set_title('Ground Truth', color='#8899b0', fontsize=10)
+    ax2.axis('off')
+    ax2.set_facecolor('#0a0e1a')
+    
+    # Prediction heatmap
+    ax3 = plt.subplot(n_rows, n_cols, 3)
+    ax3.imshow(prediction, cmap='plasma', vmin=0, vmax=1)
+    ax3.set_title('Prediction Heatmap', color='#8899b0', fontsize=10)
+    ax3.axis('off')
+    ax3.set_facecolor('#0a0e1a')
+    
+    # Binary prediction overlay
+    ax4 = plt.subplot(n_rows, n_cols, 4)
+    overlay = np.stack([image, image, image], axis=-1)
+    overlay[pred_binary == 1] = [0.95, 0.32, 0.32]
+    ax4.imshow(overlay)
+    ax4.set_title('Prediction Overlay', color='#8899b0', fontsize=10)
+    ax4.axis('off')
+    ax4.set_facecolor('#0a0e1a')
+    
+    # Attention maps (top 3)
+    for i, (layer_name, att_map) in enumerate(list(attention_maps.items())[:n_attention]):
+        ax = plt.subplot(n_rows, n_cols, 5 + i)
+        
+        # Resize attention map to match image size
+        if att_map.shape != IMG_SIZE:
+            att_map_resized = np.array(
+                Image.fromarray(att_map).resize(IMG_SIZE, Image.BILINEAR)
+            )
+        else:
+            att_map_resized = att_map
+        
+        ax.imshow(att_map_resized, cmap='viridis')
+        ax.set_title(f'Attention: {layer_name[:15]}', color='#8899b0', fontsize=9)
+        ax.axis('off')
+        ax.set_facecolor('#0a0e1a')
+    
+    # Row 2: Grad-CAM visualizations
+    # Grad-CAM heatmap
+    ax5 = plt.subplot(n_rows, n_cols, n_cols + 1)
+    ax5.imshow(gradcam_heatmap, cmap='jet', alpha=0.8)
+    ax5.set_title('Grad-CAM Heatmap', color='#8899b0', fontsize=10)
+    ax5.axis('off')
+    ax5.set_facecolor('#0a0e1a')
+    
+    # Grad-CAM overlay on original
+    ax6 = plt.subplot(n_rows, n_cols, n_cols + 2)
+    ax6.imshow(image, cmap='gray')
+    ax6.imshow(gradcam_heatmap, cmap='jet', alpha=0.5)
+    ax6.set_title('Grad-CAM Overlay', color='#8899b0', fontsize=10)
+    ax6.axis('off')
+    ax6.set_facecolor('#0a0e1a')
+    
+    # Comparison: Grad-CAM vs Ground Truth
+    ax7 = plt.subplot(n_rows, n_cols, n_cols + 3)
+    comparison = np.stack([gradcam_heatmap, mask, image], axis=-1)
+    ax7.imshow(comparison)
+    ax7.set_title('CAM vs GT Comparison', color='#8899b0', fontsize=10)
+    ax7.axis('off')
+    ax7.set_facecolor('#0a0e1a')
+    
+    # Feature importance (combined)
+    ax8 = plt.subplot(n_rows, n_cols, n_cols + 4)
+    combined_importance = gradcam_heatmap * 0.7 + prediction * 0.3
+    ax8.imshow(combined_importance, cmap='hot')
+    ax8.set_title('Combined Importance', color='#8899b0', fontsize=10)
+    ax8.axis('off')
+    ax8.set_facecolor('#0a0e1a')
+    
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='#0a0e1a')
+    plt.close(fig)
+
+
+# ============================================================
 # MAIN EVALUATION
 # ============================================================
 def evaluate(
     model_path: str = None,
-    test_dir:   str = None,
+    test_dir: str = None,
     output_dir: str = None,
-    batch_size: int = 16
-) -> dict:
+    batch_size: int = 16,
+    xai_enabled: bool = False,
+    xai_samples: int = 10
+) -> Dict:
     """
     Run full evaluation on the test set.
 
     Args:
         model_path: path to saved .h5 model
-        test_dir:   path to test/ directory (contains images/ and masks/)
+        test_dir: path to test/ directory (contains images/ and masks/)
         output_dir: where to save results JSON and report PNG
         batch_size: inference batch size
+        xai_enabled: whether to generate XAI visualizations
+        xai_samples: number of samples to generate XAI for (if enabled)
 
     Returns:
         dict with 'aggregate' and 'per_sample' results
@@ -197,26 +500,45 @@ def evaluate(
 
     print("=" * 58)
     print("  NeuroScan AI — Model Evaluation")
+    if xai_enabled:
+        print("  [XAI Mode: ENABLED]")
     print("=" * 58)
     print()
 
     # --- Load model ---
-    print("[1/4] Loading model...")
+    print("[1/5] Loading model...")
     if os.path.exists(model_path):
         model = tf.keras.models.load_model(model_path, custom_objects=CUSTOM_OBJECTS)
         print(f"[✓] Model loaded from: {model_path}")
+        print(f"    Total parameters: {model.count_params():,}")
     else:
         print(f"[!] Model not found at {model_path}")
         print("    Generating mock predictions for demo...")
         model = None  # Will use mock below
 
+    # --- Initialize XAI if enabled ---
+    gradcam = None
+    if xai_enabled and model is not None:
+        print("\n[2/5] Initializing XAI components...")
+        try:
+            gradcam = GradCAM(model)
+            xai_output_dir = os.path.join(output_dir, "xai_visualizations")
+            os.makedirs(xai_output_dir, exist_ok=True)
+            print(f"[✓] XAI initialized - outputs will be saved to: {xai_output_dir}")
+        except Exception as e:
+            print(f"[!] XAI initialization failed: {e}")
+            print("    Continuing without XAI...")
+            xai_enabled = False
+    else:
+        print("\n[2/5] XAI disabled - skipping initialization")
+
     # --- Load test data ---
-    print("\n[2/4] Loading test data...")
+    print(f"\n[3/5] Loading test data...")
     images, masks, filenames = load_test_data(test_dir)
     n_samples = len(filenames)
 
     # --- Run inference ---
-    print("\n[3/4] Running inference...")
+    print(f"\n[4/5] Running inference...")
     start_time = time.time()
 
     if model is not None:
@@ -234,10 +556,31 @@ def evaluate(
     pred_binary = (predictions > THRESHOLD).astype(np.float32)
 
     # --- Compute metrics ---
-    print("\n[4/4] Computing metrics...")
+    print(f"\n[5/5] Computing metrics...")
 
     per_sample = []
     all_dice, all_iou, all_acc = [], [], []
+
+    # Determine which samples to generate XAI for
+    xai_indices = []
+    if xai_enabled and gradcam is not None:
+        # Select top, middle, and bottom samples by dice score
+        # We'll compute dice first, then select
+        temp_dice_scores = []
+        for i in range(n_samples):
+            gt = masks[i, :, :, 0]
+            pred = pred_binary[i, :, :, 0]
+            temp_dice_scores.append(compute_dice(gt, pred))
+        
+        # Sort by dice and select samples
+        sorted_indices = np.argsort(temp_dice_scores)
+        n_xai = min(xai_samples, n_samples)
+        
+        # Get diverse samples: worst, median, best
+        step = max(1, len(sorted_indices) // n_xai)
+        xai_indices = sorted_indices[::step][:n_xai].tolist()
+        
+        print(f"[XAI] Will generate visualizations for {len(xai_indices)} samples")
 
     for i in range(n_samples):
         gt   = masks[i, :, :, 0]         # (256, 256)
@@ -274,6 +617,43 @@ def evaluate(
         all_iou.append(iou)
         all_acc.append(acc)
 
+        # Generate XAI visualizations for selected samples
+        if xai_enabled and i in xai_indices and gradcam is not None:
+            try:
+                print(f"  Generating XAI for sample {i+1}/{n_samples}: {filenames[i]}")
+                
+                # Generate Grad-CAM
+                img_input = images[i:i+1]  # (1, 256, 256, 1)
+                heatmap = gradcam.generate_heatmap(img_input)
+                
+                # Extract attention maps
+                attention_maps = extract_attention_maps(model, img_input)
+                
+                # Create visualization
+                xai_output_path = os.path.join(
+                    xai_output_dir,
+                    f"xai_{filenames[i]}"
+                )
+                
+                visualize_xai(
+                    image=images[i, :, :, 0],
+                    mask=gt,
+                    prediction=raw,
+                    pred_binary=pred,
+                    gradcam_heatmap=heatmap,
+                    attention_maps=attention_maps,
+                    filename=filenames[i],
+                    output_path=xai_output_path,
+                    dice_score=dice
+                )
+                
+                sample_result["xai_generated"] = True
+                sample_result["xai_path"] = xai_output_path
+                
+            except Exception as e:
+                print(f"  [!] XAI generation failed for {filenames[i]}: {e}")
+                sample_result["xai_generated"] = False
+
     # --- Aggregate metrics ---
     # Detection-level accuracy (tumor present/absent correctly identified)
     detection_correct = sum(1 for s in per_sample if s["correct_detection"])
@@ -299,7 +679,9 @@ def evaluate(
             "TP": tp_det, "TN": tn_det,
             "FP": fp_det, "FN": fn_det
         },
-        "threshold": THRESHOLD
+        "threshold": THRESHOLD,
+        "xai_enabled": xai_enabled,
+        "xai_samples_generated": len(xai_indices) if xai_enabled else 0
     }
 
     results = {
@@ -322,13 +704,17 @@ def evaluate(
         generate_visual_report(images, masks, predictions, pred_binary, per_sample, png_path)
         print(f"[✓] Visual report saved → {png_path}")
 
+    if xai_enabled and xai_indices:
+        print(f"[✓] XAI visualizations saved → {xai_output_dir}/")
+        print(f"    Generated {len(xai_indices)} XAI reports")
+
     return results
 
 
 # ============================================================
 # PRINT REPORT
 # ============================================================
-def print_report(aggregate: dict, per_sample: list):
+def print_report(aggregate: Dict, per_sample: List[Dict]):
     """Pretty-print the evaluation summary."""
 
     cm = aggregate["detection_confusion_matrix"]
@@ -340,6 +726,10 @@ def print_report(aggregate: dict, per_sample: list):
     print(f"│  {'Samples evaluated:':<30s} {aggregate['n_samples']:<24d} │")
     print(f"│  {'Inference time:':<30s} {aggregate['inference_time_sec']:<18.2f}s   │")
     print(f"│  {'Speed:':<30s} {aggregate['ms_per_sample']:<20.1f}ms/img │")
+    
+    if aggregate.get("xai_enabled"):
+        print(f"│  {'XAI samples generated:':<30s} {aggregate['xai_samples_generated']:<24d} │")
+    
     print("├" + "─" * 56 + "┤")
     print("│" + "  SEGMENTATION METRICS".center(56) + "│")
     print("├" + "─" * 56 + "┤")
@@ -380,7 +770,7 @@ def generate_visual_report(
     masks: np.ndarray,
     predictions: np.ndarray,
     pred_binary: np.ndarray,
-    per_sample: list,
+    per_sample: List[Dict],
     output_path: str,
     n_rows: int = 4
 ):
@@ -457,8 +847,24 @@ def generate_visual_report(
 # ============================================================
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Evaluate trained U-Net on the test set."
+        description="Evaluate trained U-Net on the test set with optional XAI visualizations.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Basic evaluation
+  python model/evaluate.py
+
+  # With XAI enabled
+  python model/evaluate.py --xai-enabled
+
+  # Custom paths with XAI
+  python model/evaluate.py --model saved_model/model.h5 --xai-enabled --xai-samples 15
+
+  # Full custom configuration
+  python model/evaluate.py --model model.h5 --test-dir data/test --output results/ --xai-enabled
+        """
     )
+    
     parser.add_argument(
         "--model",
         type=str,
@@ -483,15 +889,48 @@ def parse_args():
         default=16,
         help="Batch size for inference (default: 16)"
     )
+    parser.add_argument(
+        "--xai-enabled",
+        action="store_true",
+        help="Enable XAI (Explainable AI) visualizations including Grad-CAM and attention maps"
+    )
+    parser.add_argument(
+        "--xai-samples",
+        type=int,
+        default=10,
+        help="Number of samples to generate XAI visualizations for (default: 10)"
+    )
+    
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
+    
+    # Print configuration
+    print("\n" + "=" * 58)
+    print("  Configuration")
+    print("=" * 58)
+    print(f"  Model:      {args.model or DEFAULT_MODEL_PATH}")
+    print(f"  Test Dir:   {args.test_dir or DEFAULT_TEST_DIR}")
+    print(f"  Output:     {args.output or DEFAULT_OUTPUT_DIR}")
+    print(f"  Batch Size: {args.batch_size}")
+    print(f"  XAI:        {'ENABLED' if args.xai_enabled else 'DISABLED'}")
+    if args.xai_enabled:
+        print(f"  XAI Samples: {args.xai_samples}")
+    print("=" * 58 + "\n")
 
-    evaluate(
+    # Run evaluation
+    results = evaluate(
         model_path=args.model,
         test_dir=args.test_dir,
         output_dir=args.output,
-        batch_size=args.batch_size
+        batch_size=args.batch_size,
+        xai_enabled=args.xai_enabled,
+        xai_samples=args.xai_samples
     )
+    
+    print("\n" + "=" * 58)
+    print("  Evaluation Complete!")
+    print("=" * 58)
+    print()

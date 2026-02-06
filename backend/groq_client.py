@@ -65,13 +65,16 @@ Be precise, professional, and clinically accurate.
             {
                 "role": "system",
                 "content": (
-                    "You are a neuroradiology AI. Respond ONLY with valid JSON. "
-                    "No markdown fences, no extra text."
+                    "You are a medical AI assistant that interprets and presents "
+                    "automated imaging analysis results. You DO NOT diagnose - you "
+                    "synthesize AI findings for medical professionals. "
+                    "Always emphasize the role of human expertise. "
+                    "Respond ONLY with valid JSON."
                 )
             },
             {"role": "user", "content": prompt}
         ],
-        max_tokens=800,
+        max_tokens=1000,
         temperature=0.3
     )
 
@@ -84,6 +87,7 @@ Be precise, professional, and clinically accurate.
         if raw.startswith("json"):
             raw = raw[4:]
 
+
     try:
         report = json.loads(raw)
     except json.JSONDecodeError:
@@ -94,5 +98,30 @@ Be precise, professional, and clinically accurate.
             "recommendations": ["Please consult a specialist."],
             "disclaimer": "This is an AI-generated report. Not a substitute for professional medical advice."
         }
+        
+    if 'ai_methods_used' not in report:
+        report['ai_methods_used'] = [
+            "U-Net CNN (segmentation)",
+            "Grad-CAM (attention visualization)",
+            "Rule-based analysis (measurements)",
+            "SHAP (feature importance)"
+        ]
+    
+    if 'confidence_interpretation' not in report:
+        report['confidence_interpretation'] = (
+            f"The {confidence * 100:.1f}% confidence represents the calibrated "
+            f"probability from the CNN model after temperature scaling. "
+            f"This is NOT clinical certainty - it reflects the model's "
+            f"confidence in its segmentation prediction."
+        )
+    
+    if 'limitations' not in report:
+        report['limitations'] = [
+            "Single 2D slice analysis (not full 3D volume)",
+            "AI model trained on specific dataset (LGG MRI)",
+            "No histopathological confirmation",
+            "Requires expert radiologist validation"
+        ]
+    
 
     return report

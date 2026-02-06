@@ -4,7 +4,11 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>🧠 NeuroScan AI — Brain MRI Diagnosis</title>
+
+<!-- ===== STYLESHEETS ===== -->
 <link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="xai_similar_styles.css" />
+
 </head>
 <body>
 
@@ -15,11 +19,15 @@
       <span class="logo-icon">⊕</span>
       <span class="logo-text">NeuroScan<span class="logo-ai">AI</span></span>
     </div>
+    
     <nav class="nav-pills">
       <button class="pill active" data-tab="scan">Scan</button>
       <button class="pill" data-tab="brain3d">3D Brain</button>
+      <button class="pill" data-tab="xai">Explainability</button>
+      <button class="pill" data-tab="similar">Similar Cases</button>
       <button class="pill" data-tab="info">Info</button>
     </nav>
+
     <div class="header-status">
       <span class="status-dot" id="statusDot"></span>
       <span class="status-text" id="statusText">Connecting...</span>
@@ -60,7 +68,7 @@
       <h2>3D Brain Model</h2>
       <div class="viewer-controls">
         <button class="ctrl-btn" id="btnRotate" title="Auto-rotate">↻</button>
-        <button class="ctrl-btn" id="btnSlice" title="Toggle slice view">⊘</button>
+        <button class="ctrl-btn" id="btnSlice" title="Toggle detail view">⊘</button>
         <button class="ctrl-btn" id="btnReset" title="Reset view">↺</button>
       </div>
     </div>
@@ -70,10 +78,10 @@
       <div class="viewer-overlay">
         <div class="axis-label x">X</div>
         <div class="axis-label y">Y</div>
-        <div class="axis-label z"></div>
+        <div class="axis-label z">Z</div>
       </div>
       <div class="slice-indicator" id="sliceIndicator" style="display:none;">
-        <span>Slice View</span>
+        <span>Detail View</span>
       </div>
       <!-- Loading indicator for 3D model -->
       <div class="model-loading" id="modelLoading" style="display:flex;">
@@ -168,10 +176,54 @@
       </div>
 
       <!-- Recommendations -->
-      <div class="report-section">
-        <div class="report-section-title">Recommendations</div>
-        <ul class="findings-list" id="recommendationsList"></ul>
-      </div>
+              <div class="report-section">
+                <div class="report-section-title">Recommendations</div>
+                <ul class="findings-list" id="recommendationsList"></ul>
+              </div>
+
+                <div class="report-section">
+                  <div class="report-section-title">🔬 AI Methods Comparison</div>
+                  <div class="comparison-table">
+                      <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                          <thead>
+                              <tr style="border-bottom: 1px solid #1e3a52;">
+                                  <th style="padding: 8px; text-align: left; color: #8899b0;">Method</th>
+                                  <th style="padding: 8px; text-align: center; color: #8899b0;">Result</th>
+                                  <th style="padding: 8px; text-align: center; color: #8899b0;">Confidence</th>
+                              </tr>
+                          </thead>
+                          <tbody id="methodsComparisonBody">
+                              <!-- Will be populated by JS -->
+                          </tbody>
+                      </table>
+                  </div>
+              </div>
+
+              <div class="clinical-disclaimer" style="margin-top: 20px; padding: 16px; 
+              background: rgba(255, 152, 0, 0.1); border: 2px solid #ff9800; 
+              border-radius: 8px;">
+              <div style="display: flex; align-items: start; gap: 12px;">
+                  <div style="font-size: 24px;">⚕️</div>
+                  <div>
+                      <div style="color: #ff9800; font-size: 13px; font-weight: bold; margin-bottom: 8px;">
+                          IMPORTANT MEDICAL DISCLAIMER
+                      </div>
+                      <div style="color: #c1cfe8; font-size: 11px; line-height: 1.6;">
+                          <strong>This system is a decision support tool, NOT a diagnostic device.</strong>
+                          <br><br>
+                          <strong>Role of AI:</strong> The LLM (Groq AI) only synthesizes and interprets results from 
+                          CNN segmentation, Grad-CAM visualization, rule-based analysis, and SHAP feature importance. 
+                          It does NOT participate in the diagnostic process itself.
+                          <br><br>
+                          <strong>Professional Review Required:</strong> All findings must be validated by a qualified 
+                          neuroradiologist or neurologist. This tool does not replace clinical judgment.
+                          <br><br>
+                          <strong>Limitations:</strong> Single 2D slice analysis, dataset-specific training, 
+                          no histopathological confirmation.
+                      </div>
+                  </div>
+              </div>
+          </div>
 
       <!-- Disclaimer -->
       <div class="disclaimer" id="disclaimer"></div>
@@ -187,6 +239,16 @@
 
 </main>
 
+<!-- ===== XAI PANEL (Full overlay) ===== -->
+<div class="xai-panel" id="xaiPanel" style="display:none;">
+  <!-- Content will be dynamically inserted by xai_similar_ui.js -->
+</div>
+
+<!-- ===== SIMILAR CASES PANEL (Full overlay) ===== -->
+<div class="similar-panel" id="similarPanel" style="display:none;">
+  <!-- Content will be dynamically inserted by xai_similar_ui.js -->
+</div>
+
 <!-- ===== INFO TAB (hidden by default) ===== -->
 <div class="info-panel" id="infoPanel" style="display:none;">
   <div class="info-content">
@@ -195,10 +257,41 @@
 
     <h3>How It Works</h3>
     <div class="info-steps">
-      <div class="step"><span class="step-num">01</span><div><strong>Upload</strong><p>Upload a brain MRI scan (PNG/JPG)</p></div></div>
-      <div class="step"><span class="step-num">02</span><div><strong>CNN Prediction</strong><p>U-Net model segments tumor regions</p></div></div>
-      <div class="step"><span class="step-num">03</span><div><strong>Groq AI Report</strong><p>LLM generates medical findings</p></div></div>
-      <div class="step"><span class="step-num">04</span><div><strong>3D Visualization</strong><p>Tumor mapped onto interactive 3D brain</p></div></div>
+      <div class="step">
+        <span class="step-num">01</span>
+        <div>
+          <strong>Upload</strong>
+          <p>Upload a brain MRI scan (PNG/JPG)</p>
+        </div>
+      </div>
+      <div class="step">
+        <span class="step-num">02</span>
+        <div>
+          <strong>CNN Prediction</strong>
+          <p>U-Net model segments tumor regions</p>
+        </div>
+      </div>
+      <div class="step">
+        <span class="step-num">03</span>
+        <div>
+          <strong>Groq AI Report</strong>
+          <p>LLM generates medical findings</p>
+        </div>
+      </div>
+      <div class="step">
+        <span class="step-num">04</span>
+        <div>
+          <strong>3D Visualization</strong>
+          <p>Tumor mapped onto interactive 3D brain</p>
+        </div>
+      </div>
+      <div class="step">
+        <span class="step-num">05</span>
+        <div>
+          <strong>XAI Analysis</strong>
+          <p>Explainable AI with Grad-CAM, Rules, SHAP</p>
+        </div>
+      </div>
     </div>
 
     <h3>Dataset</h3>
@@ -208,19 +301,28 @@
     <strong>Tumor Type:</strong> Low-Grade Glioma (LGG)</p>
 
     <h3>Tech Stack</h3>
-    <p>Python · FastAPI · TensorFlow (U-Net) · Groq (llama3-70b) · Three.js · GLTF Models · Vanilla JS</p>
+    <p><strong>Backend:</strong> Python · FastAPI · TensorFlow (U-Net) · Groq (llama3-70b)<br>
+    <strong>Frontend:</strong> Vanilla JS · Three.js · GLTF Models<br>
+    <strong>XAI:</strong> Grad-CAM · SHAP · Rule-based Analysis</p>
 
     <h3>3D Brain Model</h3>
     <p><strong>Format:</strong> GLB/GLTF with automatic fallback<br>
     <strong>Rendering:</strong> PBR materials with real-time lighting<br>
-    <strong>Features:</strong> Tumor highlighting, slice view, interactive rotation</p>
+    <strong>Features:</strong> Tumor highlighting, detail view, interactive rotation</p>
+
+    <h3>Explainable AI (XAI)</h3>
+    <p><strong>Grad-CAM:</strong> Visual CNN attention heatmaps<br>
+    <strong>Rule-Based:</strong> Statistical analysis and medical thresholds<br>
+    <strong>SHAP:</strong> Feature importance and contributions<br>
+    <strong>Combined Insights:</strong> Synthesized clinical recommendations</p>
 
     <div class="disclaimer">⚠ This system is for research and educational purposes only. It is NOT a substitute for professional medical diagnosis. Always consult a qualified neurologist.</div>
   </div>
 </div>
 
 <!-- ===== SCRIPTS ===== -->
-<!-- Three.js Core -->
+
+<!-- Three.js Core (r128) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
 <!-- GLTFLoader for realistic brain models -->
@@ -311,10 +413,16 @@ THREE.GLTFLoader = ( function () {
 } )();
 </script>
 
+<!-- Official GLTFLoader (fallback) -->
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
+<!-- 3D Brain Visualization Engine -->
 <script src="brain3d_new.js"></script>
 
-<!-- Main Application Logic -->
+<!-- ✅ XAI & Similar Cases UI Module - MUST LOAD FIRST -->
+<script src="xai_similar_ui.js"></script>
+
+<!-- ✅ Main Application Logic - LOADS AFTER XAI MODULE -->
 <script src="app.js"></script>
 
 <!-- Hide 3D model loading indicator after initialization -->

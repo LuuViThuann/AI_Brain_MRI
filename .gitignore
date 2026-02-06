@@ -1,8 +1,9 @@
 
 
-#Ignore cursor AI rules
-.cursor\rules\codacy.mdc
 
+# Codacy – disable forever
+.codacy/
+.cursor/rules/codacy.mdc
 # ==================================================
 # Python cache / compiled
 # ==================================================
@@ -36,7 +37,9 @@ data/masks/
 data/train/
 data/val/
 data/test/
-
+data/processed/
+data/raw/
+data/faiss/
 # ==================================================
 # MODEL OUTPUT (KHÔNG PUSH)
 # ==================================================
