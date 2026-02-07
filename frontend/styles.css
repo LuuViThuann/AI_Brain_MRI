@@ -656,3 +656,233 @@ body::before {
   max-height: 90vh;
   overflow-y: auto;
 }
+
+/* ============================================================
+   NEW: TUMOR METRICS PANEL STYLES
+   ============================================================ */
+
+   #tumorMetricsPanel::-webkit-scrollbar {
+    width: 4px;
+  }
+  
+  #tumorMetricsPanel::-webkit-scrollbar-track {
+    background: rgba(30, 58, 82, 0.3);
+    border-radius: 4px;
+  }
+  
+  #tumorMetricsPanel::-webkit-scrollbar-thumb {
+    background: rgba(0, 229, 255, 0.3);
+    border-radius: 4px;
+  }
+  
+  #tumorMetricsPanel::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 229, 255, 0.6);
+  }
+  
+  /* Tooltip Animation */
+  #tumorTooltip {
+    animation: tooltipAppear 0.2s ease-out forwards;
+  }
+  
+  @keyframes tooltipAppear {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  /* Coordinate Marker Glow */
+  .tumor-marker-label {
+    font-family: 'Consolas', monospace;
+    font-size: 12px;
+    padding: 6px 10px;
+    background: rgba(10, 14, 26, 0.95);
+    border: 1px solid #00e5ff;
+    border-radius: 4px;
+    color: #00e5ff;
+    box-shadow: 0 0 12px rgba(0, 229, 255, 0.4);
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  
+  /* Colorbar styling */
+  .colorbar-container {
+    display: flex;
+    height: 30px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: linear-gradient(90deg,
+      #4a4a4a 0%,
+      #ffff00 25%,
+      #ff9100 50%,
+      #ff5252 75%,
+      #ff0040 100%);
+    box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.3),
+                0 0 12px rgba(255, 0, 64, 0.2);
+  }
+  
+  .threshold-indicator {
+    padding: 8px;
+    border-left: 3px solid;
+    border-radius: 4px;
+    margin: 4px 0;
+    font-size: 11px;
+  }
+  
+  .threshold-high {
+    border-left-color: #ff0040;
+    background: rgba(255, 0, 64, 0.1);
+    color: #ff5252;
+  }
+  
+  .threshold-medium {
+    border-left-color: #ff9100;
+    background: rgba(255, 145, 0, 0.1);
+    color: #ffb74d;
+  }
+  
+  .threshold-low {
+    border-left-color: #ffff00;
+    background: rgba(255, 255, 0, 0.1);
+    color: #ffff99;
+  }
+
+  /* ============================================================
+   TUMOR DEPTH VECTOR LABEL STYLES
+   ============================================================ */
+
+#depthLabel {
+  animation: depthLabelSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  will-change: transform;
+}
+
+@keyframes depthLabelSlideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.8) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+#depthLabel:hover {
+  transform: scale(1.05);
+  filter: drop-shadow(0 0 12px rgba(0, 229, 255, 0.4));
+}
+
+/* Depth vector line glow effect */
+.depth-vector-line {
+  filter: drop-shadow(0 0 8px currentColor);
+}
+
+/* Depth category badge colors */
+.depth-category-superficial {
+  background: rgba(255, 0, 64, 0.15);
+  border: 1px solid #ff0040;
+  color: #ff5252;
+}
+
+.depth-category-shallow {
+  background: rgba(255, 145, 0, 0.15);
+  border: 1px solid #ff9100;
+  color: #ffb74d;
+}
+
+.depth-category-intermediate {
+  background: rgba(255, 255, 0, 0.15);
+  border: 1px solid #ffff00;
+  color: #ffff99;
+}
+
+.depth-category-deep {
+  background: rgba(0, 200, 83, 0.15);
+  border: 1px solid #00c853;
+  color: #66bb6a;
+}
+
+.depth-category-very-deep {
+  background: rgba(0, 163, 204, 0.15);
+  border: 1px solid #00a3cc;
+  color: #4dd0e1;
+}
+
+/* Depth visualization bar */
+.depth-bar {
+  height: 24px;
+  background: rgba(10, 14, 26, 0.5);
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.5);
+}
+
+.depth-bar-fill {
+  height: 100%;
+  transition: width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 10px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* Depth reference scale */
+.depth-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 8px;
+  color: #5a7a99;
+  padding: 4px 0;
+  border-top: 1px solid #1e3a52;
+  margin-top: 4px;
+}
+
+.depth-scale-mark {
+  text-align: center;
+  flex: 1;
+}
+@keyframes depthLabelFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.8) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+#depthVectorLabel {
+  animation: depthLabelFadeIn 0.4s ease-out forwards;
+}
+
+#depthVectorLabel:hover {
+  transform: scale(1.05);
+  filter: drop-shadow(0 0 15px currentColor);
+}
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+#tumorTooltip {
+  animation: tooltipFadeIn 0.3s ease-out;
+  transition: all 0.2s ease;
+}
+
+#tumorTooltip:hover {
+  transform: scale(1.02);
+  box-shadow: 0 0 40px rgba(255, 0, 64, 0.7);
+}

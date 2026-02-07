@@ -1,5 +1,6 @@
 /**
- * xai_similar_ui.js - UPDATED VERSION (Vietnamese Feature Names)
+ * xai_similar_ui.js - FIXED VERSION (Vietnamese Feature Names)
+ * ✅ Tất cả lỗi syntax đã được sửa
  * Hiển thị tên feature bằng tiếng Việt
  */
 
@@ -433,11 +434,61 @@
           </div>
         `;
       }
-      
+
+      cardHTML += this.renderConfidenceColorbar();
       cardHTML += `</div>`;
       return cardHTML;
     },
     
+    // ===== RENDER CONFIDENCE COLORBAR (NEW) =====
+    renderConfidenceColorbar: function() {
+      return `
+        <div style="margin: 16px 0; padding: 12px; background: rgba(0, 229, 255, 0.05); 
+          border-radius: 6px; border: 1px solid #1e3a52;">
+          
+          <div style="color: #8899b0; font-size: 11px; text-transform: uppercase; 
+            letter-spacing: 0.5px; margin-bottom: 12px;">
+            🎨 Thang Màu Confidence
+          </div>
+          
+          <!-- Colorbar -->
+          <div style="display: flex; height: 30px; margin-bottom: 8px; border-radius: 4px; overflow: hidden;
+            background: linear-gradient(90deg, 
+              #4a4a4a 0%, 
+              #ffff00 30%, 
+              #ff9100 60%, 
+              #ff0040 100%);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);">
+          </div>
+          
+          <!-- Labels -->
+          <div style="display: flex; justify-content: space-between; font-size: 9px; 
+            color: #5a7a99; font-family: 'Consolas', monospace;">
+            <span>0.0 (Không chắc)</span>
+            <span>0.5 (Trung bình)</span>
+            <span>1.0 (Rất chắc)</span>
+          </div>
+          
+          <!-- Threshold Indicators -->
+          <div style="margin-top: 12px; padding: 8px; background: rgba(0, 0, 0, 0.2); 
+            border-radius: 4px;">
+            <div style="color: #5a7a99; font-size: 10px; margin-bottom: 6px;">
+              ⚠️ <strong>Ngưỡng Phân Loại</strong>
+            </div>
+            <div style="color: #ff0040; font-size: 11px; margin-bottom: 4px;">
+              🔴 <strong>&gt; 0.7:</strong> Nghi ngờ cao (Khối u có khả năng)
+            </div>
+            <div style="color: #ff9100; font-size: 11px; margin-bottom: 4px;">
+              🟠 <strong>0.3 - 0.7:</strong> Không chắc chắn (cần xác minh)
+            </div>
+            <div style="color: #ffff00; font-size: 11px;">
+              🟡 <strong>&lt; 0.3:</strong> Không chắc (Không phải khối u)
+            </div>
+          </div>
+        </div>
+      `;
+    },
+
     // ===== RULE-BASED CARD =====
     renderRuleBasedCard: function(rules) {
       if (!rules) return '';
@@ -520,7 +571,7 @@
       if (rules.warnings && rules.warnings.length > 0) {
         cardHTML += `
           <div style="padding: 12px; background: rgba(255, 82, 82, 0.1); 
-            border-left: 3px solid #ff5252; border-radius: 4px;">
+            border-left: 3px solid #ff5252; border-radius: 4px; margin-bottom: 12px;">
             <h4 style="color: #ff5252; margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase;">
               ⚠️ Cảnh Báo Lâm Sàng
             </h4>
@@ -534,12 +585,96 @@
           </div>
         `;
       }
-      
+
+      // ✅ DEPTH METRICS SECTION (FIXED)
+      if (rules.depth_metrics) {
+        cardHTML += `
+          <div style="
+            padding: 12px;
+            background: rgba(156, 39, 176, 0.08);
+            border-left: 3px solid #9c27b0;
+            border-radius: 4px;
+            margin-bottom: 12px;
+          ">
+            <div style="color: #8899b0; margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; font-weight: bold;">
+              📏 Vector Độ Sâu
+            </div>
+            
+            <!-- Depth Value -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <div style="color: #5a7a99; font-size: 11px;">Tumor Depth</div>
+              <div style="color: #9c27b0; font-size: 16px; font-weight: bold;">
+                ${rules.depth_metrics.tumor_depth_mm?.toFixed(1) || 'N/A'} mm
+              </div>
+            </div>
+            
+            <!-- Category Badge -->
+            <div style="
+              padding: 8px;
+              background: ${this.getCategoryBG(rules.depth_metrics.depth_category?.category)};
+              border-left: 3px solid ${this.getCategoryBorder(rules.depth_metrics.depth_category?.category)};
+              border-radius: 4px;
+              margin-bottom: 8px;
+            ">
+              <div style="
+                color: ${this.getCategoryText(rules.depth_metrics.depth_category?.category)};
+                font-size: 12px;
+                font-weight: bold;
+              ">
+                ${rules.depth_metrics.depth_category?.emoji || '📏'}
+                ${rules.depth_metrics.depth_category?.label || 'N/A'}
+              </div>
+            </div>
+            
+            <!-- Vector Coordinates -->
+            <div style="
+              background: rgba(10, 14, 26, 0.3);
+              padding: 8px;
+              border-radius: 4px;
+              font-family: 'Courier New', monospace;
+              font-size: 9px;
+              color: #5a7a99;
+              margin-bottom: 8px;
+            ">
+              <div style="margin-bottom: 4px;">
+                <strong>Tâm u:</strong> 
+                <span style="color: #00e5ff;">
+                  (${rules.depth_metrics.centroid_3d?.[0]?.toFixed(1)}, 
+                  ${rules.depth_metrics.centroid_3d?.[1]?.toFixed(1)}, 
+                  ${rules.depth_metrics.centroid_3d?.[2]?.toFixed(1)})
+                </span>
+              </div>
+              <div>
+                <strong>Vỏ não:</strong> 
+                <span style="color: #00e5ff;">
+                  (${rules.depth_metrics.nearest_cortex_point?.[0]?.toFixed(1)}, 
+                  ${rules.depth_metrics.nearest_cortex_point?.[1]?.toFixed(1)}, 
+                  ${rules.depth_metrics.nearest_cortex_point?.[2]?.toFixed(1)})
+                </span>
+              </div>
+            </div>
+            
+            <!-- Clinical Insight -->
+            <div style="
+              background: rgba(156, 39, 176, 0.05);
+              padding: 8px;
+              border-radius: 4px;
+              color: #c1cfe8;
+              font-size: 10px;
+              line-height: 1.5;
+            ">
+              💡 <strong>Ý nghĩa lâm sàng:</strong> 
+              ${this.getDepthClinicalMeaning(rules.depth_metrics.tumor_depth_mm)}
+            </div>
+          </div>
+        `;
+      }
+
       cardHTML += `</div>`;
       return cardHTML;
     },
     
-    // ===== ✅ SHAP CARD (VIETNAMESE + FIXED) =====
+    // ===== SHAP CARD (VIETNAMESE + FIXED) =====
     renderSHAPCard: function(shap) {
       if (!shap) return '';
       
@@ -939,6 +1074,60 @@
       if (panel) panel.style.display = 'none';
     },
     
+    // ===== DEPTH HELPER FUNCTIONS =====
+    
+    getDepthClinicalMeaning: function(depth) {
+      if (!depth) return 'Không xác định';
+      
+      if (depth < 5) {
+        return 'Khối u rất gần bề mặt não. Có thể gây chấn thương mô thần kinh do sưng phù. Cần can thiệp sớm.';
+      } else if (depth < 15) {
+        return 'Khối u gần vỏ não. Có thể ảnh hưởng đến vùng vỏ não, cần đánh giá các chức năng cụ thể.';
+      } else if (depth < 30) {
+        return 'Khối u ở sâu vừa phải. Tương đối an toàn hơn nhưng vẫn cần theo dõi tiến triển.';
+      } else if (depth < 45) {
+        return 'Khối u nằm sâu trong não. Ít ảnh hưởng đến vỏ não, nhưng cần kiểm tra các cấu trúc sâu.';
+      } else {
+        return 'Khối u ở rất sâu trong não. Có thể gần các cấu trúc quan trọng như thalamus hoặc brainstem.';
+      }
+    },
+
+    getCategoryBG: function(category) {
+      const map = {
+        'SUPERFICIAL': 'rgba(255, 0, 64, 0.1)',
+        'SHALLOW': 'rgba(255, 145, 0, 0.1)',
+        'INTERMEDIATE': 'rgba(255, 255, 0, 0.1)',
+        'DEEP': 'rgba(0, 200, 83, 0.1)',
+        'VERY_DEEP': 'rgba(0, 163, 204, 0.1)'
+      };
+      
+      return map[category] || 'rgba(136, 153, 176, 0.1)';
+    },
+
+    getCategoryBorder: function(category) {
+      const map = {
+        'SUPERFICIAL': '#ff0040',
+        'SHALLOW': '#ff9100',
+        'INTERMEDIATE': '#ffff00',
+        'DEEP': '#00c853',
+        'VERY_DEEP': '#00a3cc'
+      };
+      
+      return map[category] || '#8899b0';
+    },
+
+    getCategoryText: function(category) {
+      const map = {
+        'SUPERFICIAL': '#ff5252',
+        'SHALLOW': '#ffb74d',
+        'INTERMEDIATE': '#ffff99',
+        'DEEP': '#66bb6a',
+        'VERY_DEEP': '#4dd0e1'
+      };
+      
+      return map[category] || '#c1cfe8';
+    },
+
     // ===== UTILITIES =====
     
     getImportanceLevel: function(percent) {

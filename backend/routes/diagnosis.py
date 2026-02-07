@@ -315,6 +315,15 @@ async def diagnose(file: UploadFile = File(...)):
         # ===== STEP 7: BUILD COMPLETE RESPONSE =====
         processing_time = time.time() - start_time
         
+        detailed_metrics = None
+        if xai_result.get('rule_based'):
+            # Metric đã có từ rule_based analysis
+            detailed_metrics = xai_result['rule_based'].get('detailed_metrics')
+        
+        depth_metrics = None
+        if xai_result.get('rule_based'):
+            depth_metrics = xai_result['rule_based'].get('depth_metrics')
+
         response = {
             "status": "success",
             "prediction": {
@@ -323,8 +332,12 @@ async def diagnose(file: UploadFile = File(...)):
                 "tumor_area_percent": prediction["tumor_area_percent"],
                 "location_hint": prediction["location_hint"],
                 "location_3d_key": location_3d_key,
-                "mask_shape": [256, 256]
+                "mask_shape": [256, 256],
+                "centroid_px": prediction.get("centroid_px"), 
+                "centroid_normalized": prediction.get("centroid_normalized"),  
             },
+            "detailed_metrics": detailed_metrics, 
+            "depth_metrics": depth_metrics,
             "report": report,
             "mask": prediction["mask"],
             "xai": xai_result,

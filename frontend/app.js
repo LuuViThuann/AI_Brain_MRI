@@ -19,6 +19,8 @@
 
   const API_BASE = 'http://localhost:8000/api';
 
+  window.lastDiagnosisData = null;
+
   // ===== DOM References - Main Report Section =====
   const uploadZone       = document.getElementById('uploadZone');
   const fileInput        = document.getElementById('fileInput');
@@ -55,6 +57,7 @@
   const similarPanel = document.getElementById('similarPanel');
   const mainLayout = document.querySelector('.main-layout');
 
+  
   // ===== State =====
   let currentFile = null;
   let currentImageFile = null;
@@ -411,21 +414,218 @@ btnDiagnose.addEventListener('click', async () => {
       console.log('[App] ℹ️  No tumor detected, skipping 3D update');
       return;
     }
-
-    console.log('[App] 🧠 Updating 3D brain visualization...');
+    window.lastDiagnosisData = data;
+    
+  
+    console.log('%c[App] 🧠 Updating 3D brain with FULL metrics and depth visualization...', 'color: #00c853; font-weight: bold;');
     
     const location = mapLocationToKey(data.prediction.location_hint);
     const tumorSize = Math.min(data.prediction.tumor_area_percent / 5, 0.5);
-
+  
     fetch(`${API_BASE}/brain3d?location=${location}&tumor_size=${tumorSize}`)
       .then(r => r.json())
       .then(brainData => {
         if (window.updateBrainTumor && brainData.tumor_points) {
-          console.log('[App] ✅ 3D brain updated with tumor points');
-          window.updateBrainTumor(brainData.tumor_points);
+          console.log('[App] ✅ Calling updateBrainTumor with:');
+          console.log('  - tumorPoints:', brainData.tumor_points.length, 'points');
+          console.log('  - metrics:', data.detailed_metrics);
+          console.log('  - depthMetrics:', data.depth_metrics);
+          
+          // ✅ FIX: Truyền đầy đủ 3 tham số
+          window.updateBrainTumor(
+            brainData.tumor_points,
+            data.detailed_metrics,        // metrics từ diagnosis
+            data.depth_metrics            // ✅ MỚI: depth metrics từ diagnosis
+          );
+          
+          // ✅ FIX: Cập nhật metrics panel với đầy đủ dữ liệu
+          if (window.updateTumorMetrics) {
+            console.log('[App] 📊 Updating metrics panel...');
+            window.updateTumorMetrics(data);  // Pass full diagnosis data
+          }
         }
       })
-      .catch(err => console.warn('[App] ⚠️  3D update failed:', err));
+      .catch(err => {
+        console.warn('[App] ⚠️  3D update failed:', err);
+      });
+  }
+
+
+  function displayMetricsPanel(diagnosisData) {
+    const panel = document.getElementById('tumorMetricsPanel');
+    if (!panel) {
+      console.warn('[App] ⚠️  Metrics panel not found');
+      return;
+    }
+  
+    const metrics = diagnosisData.detailed_metrics || {};
+    const depthMetrics = diagnosisData.depth_metrics || {};
+    const pred = diagnosisData.prediction || {};
+  
+    console.log('[App] 📊 Displaying metrics panel with depth info');
+    console.log('  Depth:', depthMetrics.tumor_depth_mm, 'mm');
+    console.log('  Category:', depthMetrics.depth_category?.category);
+  
+    // Build HTML
+    let html = `
+      <!-- DEPTH METRICS - ĐẨY LÊN ĐẦU TIÊN -->
+      <div style="
+        padding: 12px;
+        background: ${getDepthCategoryColor(depthMetrics.depth_category?.category).bg};
+        border-left: 3px solid ${getDepthCategoryColor(depthMetrics.depth_category?.category).border};
+        border-radius: 4px;
+        margin-bottom: 12px;
+      ">
+        <div style="color: #8899b0; margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; font-weight: bold;">
+          ${depthMetrics.depth_category?.emoji || '📏'} Độ Sâu Khối U
+        </div>
+        
+        <!-- Depth Value (BIG) -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div style="color: #5a7a99; font-size: 11px;">Tumor Depth</div>
+          <div style="color: ${getDepthCategoryColor(depthMetrics.depth_category?.category).text}; font-size: 20px; font-weight: bold;">
+            ${depthMetrics.tumor_depth_mm !== undefined ? depthMetrics.tumor_depth_mm.toFixed(1) : 'N/A'} mm
+          </div>
+        </div>
+        
+        <!-- Category Badge -->
+        <div style="
+          padding: 8px;
+          background: ${getDepthCategoryColor(depthMetrics.depth_category?.category).bg};
+          border-left: 3px solid ${getDepthCategoryColor(depthMetrics.depth_category?.category).border};
+          border-radius: 4px;
+          margin-bottom: 8px;
+        ">
+          <div style="color: ${getDepthCategoryColor(depthMetrics.depth_category?.category).text}; font-size: 12px; font-weight: bold;">
+            ${depthMetrics.depth_category?.emoji || '📏'}
+            ${depthMetrics.depth_category?.label || 'N/A'}
+          </div>
+        </div>
+        
+        <!-- Depth Visualization Bar -->
+        <div style="width: 100%; height: 24px; background: rgba(0,0,0,0.3); border-radius: 4px; overflow: hidden; margin-bottom: 8px;">
+          ${createDepthBar(depthMetrics.tumor_depth_mm)}
+        </div>
+        
+        <!-- Coordinates -->
+        <div style="
+          background: rgba(10, 14, 26, 0.3);
+          padding: 8px;
+          border-radius: 4px;
+          font-family: 'Courier New', monospace;
+          font-size: 9px;
+          color: #5a7a99;
+        ">
+          <div style="margin-bottom: 4px;">
+            <strong>Tâm u:</strong> <span style="color: #00e5ff;">
+              (${depthMetrics.centroid_3d?.[0]?.toFixed(1)}, 
+              ${depthMetrics.centroid_3d?.[1]?.toFixed(1)}, 
+              ${depthMetrics.centroid_3d?.[2]?.toFixed(1)})
+            </span>
+          </div>
+          <div>
+            <strong>Vỏ não:</strong> <span style="color: #00e5ff;">
+              (${depthMetrics.nearest_cortex_point?.[0]?.toFixed(1)}, 
+              ${depthMetrics.nearest_cortex_point?.[1]?.toFixed(1)}, 
+              ${depthMetrics.nearest_cortex_point?.[2]?.toFixed(1)})
+            </span>
+          </div>
+        </div>
+      </div>
+  
+      <!-- VOLUME -->
+      <div style="padding: 10px; background: rgba(0, 229, 255, 0.08); border-left: 3px solid #00e5ff; border-radius: 4px; margin-bottom: 12px;">
+        <div style="color: #5a7a99; font-size: 10px; text-transform: uppercase; margin-bottom: 4px;">📦 Thể Tích</div>
+        <div style="color: #00e5ff; font-size: 16px; font-weight: bold;">
+          ${metrics.volume_cm3 !== undefined ? metrics.volume_cm3.toFixed(2) : 'N/A'} cm³
+        </div>
+      </div>
+  
+      <!-- AREA -->
+      <div style="padding: 10px; background: rgba(255, 145, 0, 0.08); border-left: 3px solid #ff9100; border-radius: 4px; margin-bottom: 12px;">
+        <div style="color: #5a7a99; font-size: 10px; text-transform: uppercase; margin-bottom: 4px;">📐 Diện Tích</div>
+        <div style="color: #ff9100; font-size: 16px; font-weight: bold;">
+          ${metrics.area_mm2 !== undefined ? metrics.area_mm2.toFixed(1) : 'N/A'} mm²
+        </div>
+      </div>
+  
+      <!-- RATIO -->
+      <div style="padding: 10px; background: rgba(255, 82, 82, 0.08); border-left: 3px solid #ff5252; border-radius: 4px; margin-bottom: 12px;">
+        <div style="color: #5a7a99; font-size: 10px; text-transform: uppercase; margin-bottom: 4px;">📊 Tỷ Lệ U/Não</div>
+        <div style="color: #ff5252; font-size: 16px; font-weight: bold;">
+          ${metrics.tumor_brain_ratio !== undefined ? metrics.tumor_brain_ratio.toFixed(4) : 'N/A'} %
+        </div>
+      </div>
+  
+      <!-- CENTROID -->
+      <div style="padding: 10px; background: rgba(0, 200, 83, 0.08); border-left: 3px solid #00c853; border-radius: 4px; margin-bottom: 12px;">
+        <div style="color: #5a7a99; font-size: 10px; text-transform: uppercase; margin-bottom: 4px;">🎯 Tâm Khối U</div>
+        <div style="color: #00c853; font-family: 'Courier New'; font-size: 11px; line-height: 1.4;">
+          <div>X: ${metrics.centroid_mm ? metrics.centroid_mm[0] : 'N/A'} mm</div>
+          <div>Y: ${metrics.centroid_mm ? metrics.centroid_mm[1] : 'N/A'} mm</div>
+          <div>Z: ${metrics.centroid_mm ? metrics.centroid_mm[2] : 'N/A'} mm</div>
+        </div>
+      </div>
+  
+      <!-- CORTEX DISTANCE -->
+      <div style="padding: 10px; background: rgba(156, 39, 176, 0.08); border-left: 3px solid #9c27b0; border-radius: 4px;">
+        <div style="color: #5a7a99; font-size: 10px; text-transform: uppercase; margin-bottom: 4px;">📏 Khoảng Cách Vỏ Não</div>
+        <div style="color: #9c27b0; font-size: 14px; font-weight: bold;">
+          ${metrics.distance_to_cortex_mm !== undefined ? metrics.distance_to_cortex_mm.toFixed(2) : 'N/A'} mm
+        </div>
+        <div style="color: #5a7a99; font-size: 9px; margin-top: 4px;">
+          ${metrics.cortex_proximity || ''}
+        </div>
+      </div>
+    `;
+  
+    document.getElementById('metricsContent').innerHTML = html;
+    panel.style.display = 'block';
+  
+    console.log('[App] ✅ Metrics panel displayed');
+  }
+
+  function getDepthCategoryColor(category) {
+    const colors = {
+      'OUTSIDE': { bg: 'rgba(255, 0, 0, 0.1)', border: '#ff0000', text: '#ff5555' },
+      'SUPERFICIAL': { bg: 'rgba(255, 0, 64, 0.1)', border: '#ff0040', text: '#ff5252' },
+      'SHALLOW': { bg: 'rgba(255, 145, 0, 0.1)', border: '#ff9100', text: '#ffb74d' },
+      'INTERMEDIATE': { bg: 'rgba(255, 255, 0, 0.1)', border: '#ffff00', text: '#ffff99' },
+      'DEEP': { bg: 'rgba(0, 200, 83, 0.1)', border: '#00c853', text: '#66bb6a' },
+      'VERY_DEEP': { bg: 'rgba(0, 163, 204, 0.1)', border: '#00a3cc', text: '#4dd0e1' }
+    };
+    
+    return colors[category] || colors['INTERMEDIATE'];
+  }
+
+  function createDepthBar(depth) {
+    const maxDepth = 55;
+    const percentage = Math.min((depth / maxDepth) * 100, 100);
+    
+    let color;
+    if (depth < 5) color = '#ff0040';
+    else if (depth < 15) color = '#ff9100';
+    else if (depth < 30) color = '#ffff00';
+    else if (depth < 45) color = '#00c853';
+    else color = '#00a3cc';
+    
+    return `
+      <div style="
+        height: 100%;
+        width: ${percentage}%;
+        background: ${color};
+        transition: width 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding-right: 8px;
+        font-size: 10px;
+        color: #0a0e1a;
+        font-weight: bold;
+      ">
+        ${percentage > 10 ? percentage.toFixed(0) + '%' : ''}
+      </div>
+    `;
   }
 
   function mapLocationToKey(hint) {
@@ -683,7 +883,7 @@ function switchTab(tabName) {
     console.log('%c[App] ✅ All systems ready!', 'color: #00c853; font-weight: bold; font-size: 14px;');
   });
 
-  // ===== WINDOW EXPORTS (for external scripts) =====
+  // ===== WINDOW EXPORTS (for external scripts) ===== 
   window.App = {
     switchTab,
     lastPredictionData: () => lastPredictionData,

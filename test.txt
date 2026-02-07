@@ -9,3 +9,9 @@ confidence: Mức độ tự tin của CNN về việc có tumor
 attention_score: Mức độ tập trung (focus) của CNN vào vùng tumor
 
 -------------
+
+So sánh:
+• CNN thuần: phát hiện nhanh, khó giải thích
+• CNN + xAI: phát hiện + minh bạch
+• Rule-based: giải thích tốt, độ chính xác thấp hơn
+• LLM: hỗ trợ diễn giải, không chẩn đoán

@@ -126,6 +126,11 @@ class RuleBasedAnalyzer:
             tumor_area_mm2, tumor_ratio, location, mask_binary, features
         )
         
+      
+        detailed_metrics = self.calculate_tumor_metrics_detailed(mask, mri_image)
+
+        depth_metrics = self.calculate_tumor_depth_vector(mask)
+
         
         return {
             # Existing fields
@@ -137,6 +142,8 @@ class RuleBasedAnalyzer:
             "rules_triggered": rules,
             "quantitative_features": features,
             "warnings": warnings,
+            "detailed_metrics": detailed_metrics,  
+            "depth_metrics": depth_metrics,  
             
             # ===== NEW FIELDS =====
             "medical_context": medical_context,
@@ -520,6 +527,228 @@ class RuleBasedAnalyzer:
         
         return warnings
 
+    def calculate_tumor_metrics_detailed(self, mask: np.ndarray, mri_image: np.ndarray = None) -> Dict:
+        """
+        🆕 Tính toán chi tiết các chỉ số khối u:
+        - Thể tích (cm³)
+        - Tọa độ tâm khối u (x, y, z) 
+        - Khoảng cách tới vỏ não
+        - Tỷ lệ u / thể tích não
+        """
+        import cv2
+        
+        # 1. TÌM CENTROID & TÍNH DIỆN TÍCH
+        contours, _ = cv2.findContours(
+            (mask > 0.5).astype(np.uint8),
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE
+        )
+        
+        if not contours:
+            return {
+                "volume_cm3": 0,
+                "centroid_px": [0, 0],
+                "centroid_mm": [0, 0, 0],
+                "distance_to_cortex_mm": 0,
+                "tumor_brain_ratio": 0,
+                "metrics_status": "no_tumor"
+            }
+        
+        largest_contour = max(contours, key=cv2.contourArea)
+        area_pixels = cv2.contourArea(largest_contour)
+        
+        # 2. TÍNH CENTROID (2D)
+        M = cv2.moments(largest_contour)
+        if M['m00'] > 0:
+            cx_px = int(M['m10'] / M['m00'])
+            cy_px = int(M['m01'] / M['m00'])
+        else:
+            cx_px, cy_px = 0, 0
+        
+        # 3. CHUYỂN ĐỔI ĐƠN VỊ
+        # Giả định: 1 pixel MRI = 0.5mm (mặc định cho brain MRI)
+        pixel_to_mm = self.pixel_to_mm
+        
+        # Diện tích (mm²)
+        area_mm2 = area_pixels * (pixel_to_mm ** 2)
+        
+        # Thể tích (giả định: slice thickness = 5mm, tính 1 slice)
+        slice_thickness_mm = 5.0
+        volume_mm3 = area_mm2 * slice_thickness_mm
+        volume_cm3 = volume_mm3 / 1000  # 1cm³ = 1000mm³
+        
+        # 4. TÂM KHỐI U (mm)
+        centroid_mm = [
+            cx_px * pixel_to_mm - 128 * pixel_to_mm,  # Centered at image center
+            cy_px * pixel_to_mm - 128 * pixel_to_mm,
+            0  # Giả định z = 0 (single slice)
+        ]
+        
+        # 5. KHOẢNG CÁCH TỚI VỎ NÃO (simple estimation)
+        # Brain cortex được mô phỏng là sphere with radius ~50-60mm
+        # Distance = cortex_radius - distance_from_center_to_centroid
+        
+        dist_from_center = np.sqrt(centroid_mm[0]**2 + centroid_mm[1]**2)
+        cortex_radius_mm = 55  # Approximate
+        distance_to_cortex_mm = max(0, cortex_radius_mm - dist_from_center)
+        
+        # 6. TỶ LỆ U / THỜI TÍCH NÃO
+        # Brain volume ~= 1400 cm³ (adult)
+        brain_volume_cm3 = 1400
+        tumor_brain_ratio = (volume_cm3 / brain_volume_cm3) * 100  # Percentage
+        
+        return {
+            "volume_cm3": round(volume_cm3, 2),
+            "volume_mm3": round(volume_mm3, 2),
+            "area_mm2": round(area_mm2, 2),
+            "centroid_px": [cx_px, cy_px],
+            "centroid_mm": [round(x, 2) for x in centroid_mm],
+            "distance_to_cortex_mm": round(distance_to_cortex_mm, 2),
+            "tumor_brain_ratio": round(tumor_brain_ratio, 4),
+            "cortex_proximity": self._get_cortex_proximity_label(distance_to_cortex_mm),
+            "metrics_status": "calculated"
+        }
+
+    def _get_cortex_proximity_label(self, distance_mm: float) -> str:
+        """
+        🆕 Phân loại mức độ gần/xa vỏ não
+        """
+        if distance_mm < 5:
+            return "🔴 Rất gần vỏ não (nguy hiểm)"
+        elif distance_mm < 15:
+            return "🟠 Gần vỏ não (cần cẩn thận)"
+        elif distance_mm < 30:
+            return "🟡 Khoảng cách trung bình"
+        else:
+            return "🟢 Xa vỏ não (an toàn hơn)"
+
+
+    def calculate_tumor_depth_vector(self, mask: np.ndarray) -> Dict:
+        """
+        🆕 Tính toán vector sâu của khối u:
+        - Điểm tâm khối u (centroid)
+        - Điểm gần nhất trên vỏ não (nearest cortex point)
+        - Độ sâu (depth)
+        - Vector hướng (direction)
+        """
+        import cv2
+        
+        # 1. TÌM CENTROID
+        contours, _ = cv2.findContours(
+            (mask > 0.5).astype(np.uint8),
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE
+        )
+        
+        if not contours:
+            return {
+                "tumor_depth_mm": 0,
+                "centroid_3d": [0, 0, 0],
+                "nearest_cortex_point": [0, 0, 0],
+                "depth_vector": [0, 0, 0],
+                "status": "no_tumor"
+            }
+        
+        largest_contour = max(contours, key=cv2.contourArea)
+        M = cv2.moments(largest_contour)
+        
+        if M['m00'] > 0:
+            cx_px = M['m10'] / M['m00']
+            cy_px = M['m01'] / M['m00']
+        else:
+            return {"tumor_depth_mm": 0, "status": "invalid"}
+        
+        # 2. CHUYỂN ĐỔI ĐƠN VỊ
+        pixel_to_mm = self.pixel_to_mm
+        
+        # Tâm khối u (normalized to image center = 0,0)
+        centroid_mm = np.array([
+            (cx_px - 128) * pixel_to_mm,
+            (cy_px - 128) * pixel_to_mm,
+            0  # Single slice, z = 0
+        ])
+        
+        # 3. BRAIN RADIUS (Approximate)
+        brain_radius_mm = 55.0  # Typical brain hemisphere radius
+        
+        # 4. KHOẢNG CÁCH TỪ TÂM ĐẾN TẨM NÃO
+        distance_from_center = np.linalg.norm(centroid_mm)
+        
+        # 5. DEPTH = Radius - Distance from center
+        tumor_depth_mm = max(0, brain_radius_mm - distance_from_center)
+        
+        # 6. ĐIỂM GẦN NHẤT TRÊN VỎ NÃO
+        # Là điểm trên bề mặt sphere cùng hướng với centroid
+        if distance_from_center > 0:
+            direction = centroid_mm / distance_from_center
+            nearest_cortex_point = direction * brain_radius_mm
+        else:
+            nearest_cortex_point = np.array([brain_radius_mm, 0, 0])
+        
+        # 7. VECTOR HỨ (từ cortex → tumor centroid)
+        depth_vector = centroid_mm - nearest_cortex_point
+        
+        # 8. PHÂN LOẠI MỨC DEPTH
+        depth_category = self._categorize_tumor_depth(tumor_depth_mm)
+        
+        return {
+            "tumor_depth_mm": round(float(tumor_depth_mm), 2),
+            "centroid_3d": [round(float(x), 2) for x in centroid_mm],
+            "nearest_cortex_point": [round(float(x), 2) for x in nearest_cortex_point],
+            "depth_vector": [round(float(x), 2) for x in depth_vector],
+            "vector_magnitude": round(float(np.linalg.norm(depth_vector)), 2),
+            "depth_category": depth_category,
+            "brain_radius_mm": brain_radius_mm,
+            "distance_from_center_mm": round(float(distance_from_center), 2),
+            "status": "calculated"
+        }
+
+    def _categorize_tumor_depth(self, depth_mm: float) -> Dict:
+        """
+        🆕 Phân loại mức độ sâu của khối u
+        """
+        if depth_mm < 0:
+            return {
+                "category": "OUTSIDE",
+                "label": "⚠️ Nằm ngoài não",
+                "emoji": "❌",
+                "color": "#ff0000"
+            }
+        elif depth_mm < 5:
+            return {
+                "category": "SUPERFICIAL",
+                "label": "🔴 Rất gần bề mặt (nguy hiểm)",
+                "emoji": "🔴",
+                "color": "#ff0040"
+            }
+        elif depth_mm < 15:
+            return {
+                "category": "SHALLOW",
+                "label": "🟠 Gần bề mặt (cần cẩn thận)",
+                "emoji": "🟠",
+                "color": "#ff9100"
+            }
+        elif depth_mm < 30:
+            return {
+                "category": "INTERMEDIATE",
+                "label": "🟡 Sâu vừa phải",
+                "emoji": "🟡",
+                "color": "#ffff00"
+            }
+        elif depth_mm < 45:
+            return {
+                "category": "DEEP",
+                "label": "🟢 Sâu (an toàn hơn)",
+                "emoji": "🟢",
+                "color": "#00c853"
+            }
+        else:
+            return {
+                "category": "VERY_DEEP",
+                "label": "🔵 Rất sâu",
+                "emoji": "🔵",
+                "color": "#00a3cc"
+            }
 
 # ===== STANDALONE TEST =====
 if __name__ == "__main__":

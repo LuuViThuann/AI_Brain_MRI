@@ -450,12 +450,29 @@ def predict_tumor(img: Image.Image) -> dict:
             print(f"[❌] Prediction error: {str(e)}")
             raise RuntimeError(f"Model prediction failed: {str(e)}")
     
+     # Thêm sau khi tính được mask:
+    if tumor_detected and np.sum(mask) > 0:
+        ys, xs = np.where(mask == 1)
+        cy, cx = int(np.mean(ys)), int(np.mean(xs))
+        
+        # Normalize to -1 to 1 range (for 3D coordinates)
+        centroid_normalized = [
+            (cx - 128) / 128,  # -1 to 1
+            (cy - 128) / 128,  # -1 to 1
+            0  # z-axis (single slice)
+        ]
+    else:
+        cx, cy = 0, 0
+        centroid_normalized = [0, 0, 0]
+    
     return {
         "tumor_detected": tumor_detected,
         "confidence": round(confidence, 4),
         "tumor_area_percent": round(tumor_area_percent, 2),
         "mask": mask.tolist(),
-        "location_hint": location_hint
+        "location_hint": location_hint,
+        "centroid_px": {"x": cx, "y": cy},  
+        "centroid_normalized": centroid_normalized,  
     }
 
 
