@@ -1,17 +1,23 @@
 \*ẢNH HỆ THỐNG CHUẨN ĐOÁN U NÃO + 3D TRỰC QUAN
 
 <p align="center">
-  <img src="Screen/1.png" width="800">
+  <img src="Screen/m1.png" width="800">
 </p>
 
 <p align="center">
-  <img src="Screen/2.png" width="800">
+<img src="Screen/m2.png" width="800">
 </p>
 
 <p align="center">
-  <img src="Screen/3.png" width="800">
+ <img src="Screen/m3.png" width="800">
+</p>
+<p align="center">
+ <img src="Screen/m4.png" width="800">
 </p>
 
+<p align="center">
+ <img src="Screen/m5.png" width="800">
+</p>
 ---
 
 - CÁC CÁCH SO SÁCH MÔ HÌNH : <
